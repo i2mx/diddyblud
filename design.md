@@ -50,4 +50,11 @@ expr = (identifier, ...) => (expr)
      | literals
      | expr * expr
      | expr + expr
+     | expr < expr
+     | expr == expr
+     | expr and expr
+     | expr or expr
+     | expr = expr
 ```
+
+<!-- oh yeah white space shouldn't matter because it makes the language easier to type -->
