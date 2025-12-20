@@ -12,115 +12,49 @@ type IdentifierName = String
 
 data Expr
   = NumE Int
-  | AddE Expr Expr
   | GEE Expr Expr
   | GTE Expr Expr
   | LTE Expr Expr
   | LEE Expr Expr
   | OrE Expr Expr
+  | NotE Expr
+  | UnaryPlusE Expr
+  | UnaryMinusE Expr
+  | AddressE Expr
+  | DereferenceE Expr
   | AndE Expr Expr
   | EqualsE Expr Expr
+  | NotEqualsE Expr Expr
   | AssignE Expr Expr
-  | SequenceE Expr Expr
+  | -- | SequenceE Expr Expr
+    AddE Expr Expr
   | SubE Expr Expr
   | MulE Expr Expr
+  | DivE Expr Expr
   | ModE Expr Expr
   | IdentE IdentifierName
-  | TemplateE [IdentifierName] Expr
-  | ExpandE Expr [Expr]
+  | -- | TemplateE [IdentifierName] Expr
+    CallE Expr [Expr]
+  | AccessE Expr IdentifierName
+  | IndexE Expr Expr
+  | BlockE [Stmt] Expr
+  | IfElseE Expr Expr Expr
+  | WhileElseE Expr (Maybe Expr) Stmt Expr
   deriving (Show)
 
--- custom formatting for Expr
-pad = "|  "
-
-display t (NumE n) = concat (replicate t pad) ++ show n
-display t (IdentE s) = concat (replicate t pad) ++ s
-display t (AddE a b) =
-  concat (replicate t pad)
-    ++ "Plus\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (SubE a b) =
-  concat (replicate t pad)
-    ++ "Minus\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (MulE a b) =
-  concat (replicate t pad)
-    ++ "Times\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (AndE a b) =
-  concat (replicate t pad)
-    ++ "And\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (OrE a b) =
-  concat (replicate t pad)
-    ++ "Or\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (GTE a b) =
-  concat (replicate t pad)
-    ++ ">\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (GEE a b) =
-  concat (replicate t pad)
-    ++ ">=\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (LTE a b) =
-  concat (replicate t pad)
-    ++ "<\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (LEE a b) =
-  concat (replicate t pad)
-    ++ "<=\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (EqualsE a b) =
-  concat (replicate t pad)
-    ++ "==\n"
-    ++ display (t + 1) a
-    ++ "\n"
-    ++ display (t + 1) b
-display t (TemplateE identifiers body) =
-  concat (replicate t pad)
-    ++ "Template ("
-    ++ intercalate ", " identifiers
-    ++ ") =>\n"
-    ++ display (t + 1) body
-display t (ExpandE body expressions) =
-  concat (replicate t pad)
-    ++ "Expand:\n"
-    ++ display (t + 1) body
-    ++ "\n"
-    ++ concat (replicate t pad)
-    ++ "With:\n"
-    ++ intercalate "\n" (map (display (t + 1)) expressions)
-
--- instance Show Expr where
---   show :: Expr -> String
---   show = display 0
-
--- annoying basic token parsers
+data Stmt
+  = BlockS [Stmt]
+  | IfElse Expr Stmt (Maybe Stmt)
+  | While Expr (Maybe Expr) Stmt
+  | ReturnS (Maybe Expr)
+  | ExprS Expr
+  deriving (Show)
 
 betweenParen :: Parser a -> Parser a
 betweenParen p = do
   satisfy isLParen
   a <- p
-  satisfy isRParen
+  satisfy isRParen <?> "Expected cosing parenthesis"
   return a
   where
     isLParen (Token LParenT _) = True
@@ -133,7 +67,7 @@ betweenBraces :: Parser a -> Parser a
 betweenBraces p = do
   satisfy isLBrace
   a <- p
-  satisfy isRBrace
+  satisfy isRBrace <?> "Expected closing brace"
   return a
   where
     isLBrace (Token LBraceT _) = True
@@ -141,6 +75,21 @@ betweenBraces p = do
 
     isRBrace (Token RBraceT _) = True
     isRBrace _ = False
+
+betweenBrackets :: Parser a -> Parser a
+betweenBrackets p = do
+  satisfy isLBracket
+  a <- p
+  satisfy isRBracket <?> "Expected closing bracket"
+  return a
+  where
+    isLBracket (Token LBracketT _) = True
+    isLBracket _ = False
+
+    isRBracket (Token RBracketT _) = True
+    isRBracket _ = False
+
+-- i am so fucking sorry that i have to do this to you
 
 exprMulOp :: Parser (Expr -> Expr -> Expr)
 exprMulOp = satisfy isMul >> return MulE
@@ -309,14 +258,74 @@ colon = void (satisfy f)
     f (Token ColonT _) = True
     f _ = False
 
-exprSequenceOp :: Parser (Expr -> Expr -> Expr)
-exprSequenceOp = void (satisfy f) >> return SequenceE
-  where
-    f (Token BarT _) = True
-    f _ = False
+-- exprSequenceOp :: Parser (Expr -> Expr -> Expr)
+-- exprSequenceOp = void (satisfy f) >> return SequenceE
+--   where
+--     f (Token BarT _) = True
+--     f _ = False
 
 exprModOp :: Parser (Expr -> Expr -> Expr)
 exprModOp = void (satisfy f) >> return ModE
   where
     f (Token ModT _) = True
+    f _ = False
+
+exprDivOp :: Parser (Expr -> Expr -> Expr)
+exprDivOp = satisfy f >> return DivE
+  where
+    f (Token DivT _) = True
+    f _ = False
+
+returnP :: Parser ()
+returnP = void (satisfy f)
+  where
+    f (Token DedentT _) = True
+    f _ = False
+
+semicolon :: Parser ()
+semicolon = "Expected semicolon" <??> void (satisfy f)
+  where
+    f (Token SemicolonT _) = True
+    f _ = False
+
+exprNEQOp :: Parser (Expr -> Expr -> Expr)
+exprNEQOp = satisfy f >> return NotEqualsE
+  where
+    f (Token NotEqualsT _) = True
+    f _ = False
+
+exprNotOp :: Parser (Expr -> Expr)
+exprNotOp = satisfy f >> return NotE
+  where
+    f (Token NotT _) = True
+    f _ = False
+
+dotP :: Parser ()
+dotP = void (satisfy f)
+  where
+    f (Token DotT _) = True
+    f _ = False
+
+exprUnaryPlus :: Parser (Expr -> Expr)
+exprUnaryPlus = satisfy f >> return UnaryPlusE
+  where
+    f (Token AddT _) = True
+    f _ = False
+
+exprUnaryMinus :: Parser (Expr -> Expr)
+exprUnaryMinus = satisfy f >> return UnaryMinusE
+  where
+    f (Token SubT _) = True
+    f _ = False
+
+exprDereference :: Parser (Expr -> Expr)
+exprDereference = satisfy f >> return DereferenceE
+  where
+    f (Token MulT _) = True
+    f _ = False
+
+exprAddress :: Parser (Expr -> Expr)
+exprAddress = satisfy f >> return AddressE
+  where
+    f (Token AddressT _) = True
     f _ = False

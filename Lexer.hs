@@ -34,6 +34,7 @@ data TokenKind
   | AddT -- operators and delimiters
   | SubT
   | MulT
+  | DivT
   | ModT
   | LTT
   | LET
@@ -41,15 +42,21 @@ data TokenKind
   | GET
   | AndT
   | OrT
+  | NotT
   | LParenT
   | RParenT
   | LBraceT
   | RBraceT
+  | LBracketT
+  | RBracketT
   | CommaT
   | SemicolonT
   | BarT
+  | AddressT
+  | DotT
   | AssignT
   | EqualsT
+  | NotEqualsT
   | FatArrowT -- arrows and pipes and templates
   | PipeT
   | PlaceholderT
@@ -74,7 +81,7 @@ data Token = Token {kind :: TokenKind, span :: Span}
 
 type Indent = Int
 
-data LexState = LexState {input :: String, pos :: Pos, indent :: [Indent]}
+data LexState = LexState {input :: String, pos :: Pos}
   deriving (Show)
 
 type Lexer a = State LexState a
@@ -87,16 +94,16 @@ advanceBy :: Pos -> String -> Pos
 advanceBy = foldl advance
 
 getNextChar :: Lexer (Maybe Char)
-getNextChar = state $ \(LexState input pos indents) ->
+getNextChar = state $ \(LexState input pos) ->
   case input of
-    [] -> (Nothing, LexState input pos indents)
-    (x : xs) -> (Just x, LexState xs (advance pos x) indents)
+    [] -> (Nothing, LexState input pos)
+    (x : xs) -> (Just x, LexState xs (advance pos x))
 
 peekNextChar :: Lexer (Maybe Char)
-peekNextChar = state $ \(LexState input pos indents) ->
+peekNextChar = state $ \(LexState input pos) ->
   case input of
-    [] -> (Nothing, LexState input pos indents)
-    (x : xs) -> (Just x, LexState input pos indents)
+    [] -> (Nothing, LexState input pos)
+    (x : xs) -> (Just x, LexState input pos)
 
 skipWhitespace :: Lexer ()
 skipWhitespace = do
@@ -105,84 +112,88 @@ skipWhitespace = do
     Just c | c == ' ' -> getNextChar >> skipWhitespace
     _ -> return ()
 
+skipAllWhitespace :: Lexer ()
+skipAllWhitespace = do
+  mc <- peekNextChar
+  case mc of
+    Just c | isSpace c -> getNextChar >> skipAllWhitespace
+    _ -> return ()
+
 takeSpaces :: Lexer String
-takeSpaces = state $ \(LexState input pos indents) ->
+takeSpaces = state $ \(LexState input pos) ->
   case input of
-    [] -> ("", LexState input pos indents)
-    xs -> (spaces, LexState rest (advanceBy pos spaces) indents)
+    [] -> ("", LexState input pos)
+    xs -> (spaces, LexState rest (advanceBy pos spaces))
       where
         (spaces, rest) = Prelude.span (== ' ') input
 
 getNextToken :: Lexer Token
 getNextToken = do
-  skipWhitespace
+  skipAllWhitespace
   startPos <- gets pos
   mc <- getNextChar
   case mc of
-    Nothing -> Token EOFT (Span startPos startPos) <$ skipWhitespace
-    -- Just ' ' -> do
-    --   padding <- takeSpaces
-    --   indentation <- gets indent
-    --   let indentLevel = length padding + 1
-    --   if indentLevel == head indentation
-    --     then return (Token NodentT (Span startPos (advanceBy startPos padding)))
-    --     else
-    --       if indentLevel >= head indentation
-    --         then
-    --           modify (\(LexState a b c) -> LexState a b (indentLevel : c))
-    --             >> return (Token IndentT (Span startPos (advanceBy startPos padding)))
-    --         else
-    --           modify (\(LexState a b c) -> LexState a b (tail c))
-    --             >> return (Token DedentT (Span startPos (advanceBy startPos padding)))
-    Just ':' -> Token ColonT (Span startPos (advance startPos '+')) <$ skipWhitespace
-    Just '+' -> Token AddT (Span startPos (advance startPos '+')) <$ skipWhitespace
-    Just '-' -> Token SubT (Span startPos (advance startPos '-')) <$ skipWhitespace
-    Just '*' -> Token MulT (Span startPos (advance startPos '*')) <$ skipWhitespace
-    Just '(' -> Token LParenT (Span startPos (advance startPos '(')) <$ skipWhitespace
-    Just ')' -> Token RParenT (Span startPos (advance startPos ')')) <$ skipWhitespace
-    Just '{' -> Token LBraceT (Span startPos (advance startPos '(')) <$ skipWhitespace
-    Just '}' -> Token RBraceT (Span startPos (advance startPos ')')) <$ skipWhitespace
-    Just ',' -> Token CommaT (Span startPos (advance startPos ',')) <$ skipWhitespace
-    Just '?' -> Token PlaceholderT (Span startPos (advance startPos '?')) <$ skipWhitespace
-    Just '%' -> Token ModT (Span startPos (advance startPos '?')) <$ skipWhitespace
+    Nothing -> return $ Token EOFT (Span startPos startPos)
+    Just '.' -> return $ Token DotT (Span startPos (advance startPos '.'))
+    Just ':' -> return $ Token ColonT (Span startPos (advance startPos ':'))
+    Just '+' -> return $ Token AddT (Span startPos (advance startPos '+'))
+    Just '-' -> return $ Token SubT (Span startPos (advance startPos '-'))
+    Just '*' -> return $ Token MulT (Span startPos (advance startPos '*'))
+    Just '/' -> return $ Token MulT (Span startPos (advance startPos '/'))
+    Just '&' -> return $ Token AddressT (Span startPos (advance startPos '&'))
+    Just '(' -> return $ Token LParenT (Span startPos (advance startPos '('))
+    Just ')' -> return $ Token RParenT (Span startPos (advance startPos ')'))
+    Just '{' -> return $ Token LBraceT (Span startPos (advance startPos '{'))
+    Just '}' -> return $ Token RBraceT (Span startPos (advance startPos '}'))
+    Just '[' -> return $ Token LBracketT (Span startPos (advance startPos '['))
+    Just ']' -> return $ Token RBracketT (Span startPos (advance startPos ']'))
+    Just ',' -> return $ Token CommaT (Span startPos (advance startPos ','))
+    Just '?' -> return $ Token PlaceholderT (Span startPos (advance startPos '?'))
+    Just '%' -> return $ Token ModT (Span startPos (advance startPos '?'))
     Just '>' -> do
       md <- peekNextChar
       case md of
         Just '=' ->
-          getNextChar >> Token GET (Span startPos (advanceBy startPos "==")) <$ skipWhitespace
-        _ -> Token GTT (Span startPos (advance startPos '=')) <$ skipWhitespace
+          getNextChar >> return (Token GET (Span startPos (advanceBy startPos "==")))
+        _ -> return $ Token GTT (Span startPos (advance startPos '='))
     Just '<' -> do
       md <- peekNextChar
       case md of
         Just '=' ->
-          getNextChar >> Token LET (Span startPos (advanceBy startPos "==")) <$ skipWhitespace
-        _ -> Token LTT (Span startPos (advance startPos '=')) <$ skipWhitespace
+          getNextChar >> return (Token LET (Span startPos (advanceBy startPos "==")))
+        _ -> return $ Token LTT (Span startPos (advance startPos '='))
+    Just '!' -> do
+      md <- peekNextChar
+      case md of
+        Just '=' ->
+          getNextChar >> return (Token NotEqualsT (Span startPos (advanceBy startPos "!=")))
+        _ -> return $ Token NotT (Span startPos (advance startPos '!'))
     Just '=' -> do
       md <- peekNextChar
       case md of
         Just '=' ->
-          getNextChar >> Token EqualsT (Span startPos (advanceBy startPos "==")) <$ skipWhitespace
+          getNextChar >> return (Token EqualsT (Span startPos (advanceBy startPos "==")))
         Just '>' ->
-          getNextChar >> Token FatArrowT (Span startPos (advanceBy startPos "=>")) <$ skipWhitespace
-        _ -> Token AssignT (Span startPos (advance startPos '=')) <$ skipWhitespace
+          getNextChar >> return (Token FatArrowT (Span startPos (advanceBy startPos "=>")))
+        _ -> return $ Token AssignT (Span startPos (advance startPos '='))
     Just '|' -> do
       md <- peekNextChar
       case md of
         Just '>' ->
-          getNextChar >> Token PipeT (Span startPos (advanceBy startPos "|>")) <$ skipWhitespace
-        _ -> Token BarT (Span startPos (advance startPos '|')) <$ skipWhitespace
-    Just '\n' -> return $ Token NewLineT (Span startPos (advance startPos '\n')) -- pmo
-    Just ';' -> Token SemicolonT (Span startPos (advance startPos ';')) <$ skipWhitespace -- pmo
+          getNextChar >> return (Token PipeT (Span startPos (advanceBy startPos "|>")))
+        _ -> return $ Token BarT (Span startPos (advance startPos '|'))
+    Just ';' -> return $ Token SemicolonT (Span startPos (advance startPos ';'))
     Just c
       | isNumber c -> lexNumber c startPos <* skipWhitespace
       | isIdentAlpha c -> lexWord c startPos <* skipWhitespace
-      | otherwise -> Token IllegalT (Span startPos (advance startPos c)) <$ skipWhitespace
+      | otherwise -> return $ Token IllegalT (Span startPos (advance startPos c))
 
 getTokenKind :: String -> TokenKind
 getTokenKind "template" = TemplateT
 getTokenKind "while" = WhileT
 getTokenKind "true" = TrueT
 getTokenKind "false" = FalseT
+getTokenKind "not" = NotT
 getTokenKind "and" = AndT
 getTokenKind "or" = OrT
 getTokenKind "def" = DefT
@@ -237,7 +248,7 @@ tokenize =
         _ -> (tk :) <$> tokenize
 
 initLexState :: String -> LexState
-initLexState input = LexState input initialPos [0]
+initLexState input = LexState input initialPos
   where
     initialPos = Pos 1 1
 

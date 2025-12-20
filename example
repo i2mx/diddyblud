@@ -1,2 +1,1 @@
-while ( x*x < y ) : ( x = x+1 ) if ( y % x == 0 )
-    notPrime | break 
+y = while(truth) {hi;} else 0;

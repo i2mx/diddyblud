@@ -1,60 +1,97 @@
-```
-range(5) |> combinations(?,2) |> filter((x) => sum(x) == 5)
-```
+some of the changes i made to c
+
+- added the while (expr) : (expr) statement
+- removed -> and a bunch of stuff
+- added comparison chaining
+- added use python style keywords
+
+# Lexing
+
+## List of Tokens
+
+kill myself
+
+# Parsing
+
+## Expression Parsing
 
 ```
-|> range(5) // range(5) is an iterator
-|> combinations(?,2) // combinations is a template which converts an iterator[a] to another iterator[a]
-// we can see that it is partially applied with the empty spot being ?
-|> filter( (x) => sum(x) == 5 )
-// filter is a template which converts an iterator to another iterator
-// (x) => sum(x) == 5 is an anonymous template
+<expression>       ::= <assignment>
+
+<assignment>       ::= <logical_or>
+                     | <unary> "=" <assignment>
+
+<logical_or>       ::= <logical_and>
+                     | <logical_or> "or" <logical_and>
+
+<logical_and>      ::= <equality>
+                     | <logical_and> "and" <equality>
+
+<equality>         ::= <relational>
+                     | <equality> "==" <relational>
+                     | <equality> "!=" <relational>
+
+<relational>       ::= <additive>
+                     | <relational> "<"  <additive>
+                     | <relational> ">"  <additive>
+                     | <relational> "<=" <additive>
+                     | <relational> ">=" <additive>
+
+<additive>         ::= <multiplicative>
+                     | <additive> "+" <multiplicative>
+                     | <additive> "-" <multiplicative>
+
+<multiplicative>   ::= <unary>
+                     | <multiplicative> "*" <unary>
+                     | <multiplicative> "/" <unary>
+                     | <multiplicative> "%" <unary>
+
+<unary>            ::= <primary>
+                     | "+" <unary>
+                     | "-" <unary>
+                     | "not" <unary>
+                     | "*" <unary>       -- dereference
+                     | "&" <unary>       -- address-of
+
+<primary>          ::= <identifier>
+                     | <number>
+                     | "(" <expression> ")"
+                     | <primary> "[" <expression> "]"        -- array indexing
+                     | <primary> "(" <argument_list> ")"     -- function call
+                     | <primary> "." <identifier>            -- struct member
+                     | <block_expr>
+
+<block_expression> ::= "{" <block_inside> "}"
+<block_inside>     ::= <expression>
+                     | <statement> <block_inside> 
+
+<if_expression>    ::= "if" "(" <expression> ")" <expression> else <expression
+<while_expression> ::= "while" "(" <expression> ")" <expression> else "(" <expression> ")"
+
+<argument_list>    ::= <expression>
+                     | <expression> "," <argument_list>
+                     | ε
+
+<identifier>       ::= [A-Za-z_][A-Za-z0-9_]*
+<number>           ::= [0-9]+ ("."[0-9]+)?
 ```
 
-```
-Add = (x, y) => x + y
-// why not
-Add(x,y) = x + y
-
-// partial application
-
-Increment = Add(1,?)
-// this is another template which is equivalent to
-Increment(x) = 1 + x
-// this is known at compile time 
-
-We only expand the template once all arguments are known
-5 |> Increment
-// expands to 1 + 5
-```
-
-# List of tokens
+## Statement Parsing
 
 ```
-mathematics
-     ( ) + - *
-template creation
-     ( , ) =>
-template expansion
-     ( ? , )
-```
+<stmt> ::= <compound_stmt>
+         | <if_stmt>
+         | <while_stmt>
+         | <return_stmt>
 
-# Expression Parsing
+<compound_stmt> ::= "{" <stmt_list> "}"
 
-```
-expr = (identifier, ...) => (expr)
-     | (expr)(expr,...)...
-     | (expr)
-     | identifier (expr, expr, ...)
-     | identifier
-     | literals
-     | expr * expr
-     | expr + expr
-     | expr < expr
-     | expr == expr
-     | expr and expr
-     | expr or expr
-     | expr = expr
-```
+<stmt_list> ::= <stmt> <stmt_list>
+              | ε
 
-<!-- oh yeah white space shouldn't matter because it makes the language easier to type -->
+<if_stmt> ::= "if" "(" <expr> ")" <stmt> [ "else" <stmt> ]
+
+<while_stmt> ::= "while" "(" <expr> ")" [ ":" "(" <expr> ")" ] <stmt>
+
+<return_stmt> ::= "return" <expr> ";"
+```

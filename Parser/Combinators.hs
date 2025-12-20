@@ -8,6 +8,8 @@ infixl 2 <+>
 
 (<+>) = chain1
 
+(<??>) = flip (<?>)
+
 -- a parser for `a sep a sep a sep`
 sepBy :: Parser a -> Parser sep -> Parser [a]
 sepBy p sep = sepBy1 p sep <|> pure []
