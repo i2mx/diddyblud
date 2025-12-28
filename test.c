@@ -375,9 +375,13 @@ bool prefix_binding_power(struct String op, int* rbp)
 {
     if (strncmp(op.data, "+", op.len) == 0 && op.len == strlen("+")) {
         *rbp = 5;
-        return true;
+        return false;
     }
-    return false;
+    if (strncmp(op.data, "-", op.len) == 0 && op.len == strlen("-")) {
+        *rbp = 5;
+        return false;
+    }
+    return true;
 }
 
 void print_expression(struct Expression* expression)
@@ -418,7 +422,9 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
     } else if (t.kind == TokenKindOperator) {
         // postfix operators
         int rbp;
-        prefix_binding_power(t.lexeme, &rbp);
+        if (prefix_binding_power(t.lexeme, &rbp)) {
+            assert(false && "Nonexistent Operator");
+        }
         struct Expression* rhs = expr_bp(lexer, rbp);
         lhs = malloc(sizeof(struct Expression));
         lhs->kind = ExpressionKindMonad;
@@ -475,6 +481,6 @@ struct Expression* expr(const char* input)
 int main()
 {
     // test_lexer();
-    struct Expression* exp = expr("- 4");
+    struct Expression* exp = expr("3- -4 ");
     print_expression(exp);
 }
