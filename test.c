@@ -352,21 +352,29 @@ bool infix_binding_power(struct String op, int* lbp, int* rbp)
     if (strncmp(op.data, "+", op.len) == 0 && op.len == strlen("+")) {
         *lbp = 1;
         *rbp = 2;
-        return true;
+        return false;
     }
     if (strncmp(op.data, "-", op.len) == 0 && op.len == strlen("-")) {
         *lbp = 1;
         *rbp = 2;
-        return true;
+        return false;
     }
     if (strncmp(op.data, "*", op.len) == 0 && op.len == strlen("*")) {
         *lbp = 3;
         *rbp = 4;
-        return true;
+        return false;
     }
     if (strncmp(op.data, "/", op.len) == 0 && op.len == strlen("/")) {
         *lbp = 3;
         *rbp = 4;
+        return false;
+    }
+    return true;
+}
+bool prefix_binding_power(struct String op, int* rbp)
+{
+    if (strncmp(op.data, "+", op.len) == 0 && op.len == strlen("+")) {
+        *rbp = 5;
         return true;
     }
     return false;
@@ -399,29 +407,48 @@ void print_expression(struct Expression* expression)
 struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
 {
     struct Token t = next_token(lexer);
-    if (t.kind != TokenKindIdent && t.kind != TokenKindNat) {
+
+    struct Expression* lhs;
+    if (t.kind == TokenKindIdent || t.kind == TokenKindNat) {
+        // atoms
+        lhs = malloc(sizeof(struct Expression));
+        lhs->kind = ExpressionKindAtom;
+        lhs->atom = t.lexeme;
+    } else if (t.kind == TokenKindOperator) {
+        // postfix operators
+        int rbp;
+        prefix_binding_power(t.lexeme, &rbp);
+        struct Expression* rhs = expr_bp(lexer, rbp);
+        lhs = malloc(sizeof(struct Expression));
+        lhs->kind = ExpressionKindMonad;
+        lhs->monad.expr = rhs;
+        lhs->monad.operation = t.lexeme;
+    } else {
+        // failure
         return NULL;
     }
-    assert(t.kind == TokenKindIdent || t.kind == TokenKindNat && "bad token, we shouldn't be here");
-    struct Expression* lhs = malloc(sizeof(struct Expression));
-    (*lhs).kind = ExpressionKindAtom;
-    (*lhs).atom = t.lexeme;
 
+    // infix operators
     while (true) {
         struct Token t = peek_token(lexer);
         int lbp, rbp;
-        if (t.kind != TokenKindOperator)
+        if (t.kind != TokenKindOperator) // no more to take
             break;
-        if (!infix_binding_power(t.lexeme, &lbp, &rbp)) {
-            assert(false && "bad operator");
+
+        if (infix_binding_power(t.lexeme, &lbp, &rbp)) {
+            assert(false && "Nonexistent Operator");
         }
+
         if (lbp < minbp)
             break;
 
         next_token(lexer);
+        // once we have taken an operator we need an expression on the right hand side
         struct Expression* rhs = expr_bp(lexer, rbp);
 
+        // combine into one expression
         struct Expression* new = malloc(sizeof(struct Expression));
+        assert(new != false && "good luck");
         new->kind = ExpressionKindDyad;
         new->dyad.left = lhs;
         print_expression(lhs);
@@ -431,6 +458,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         new->dyad.right = rhs;
         new->dyad.operation = t.lexeme;
 
+        // move new expression to left and continue
         lhs = new;
     }
 
@@ -445,7 +473,7 @@ struct Expression* expr(const char* input)
 // end of the expression parsing code
 int main()
 {
-    test_lexer();
-    struct Expression* exp = expr("a + b * c * d + e");
+    // test_lexer();
+    struct Expression* exp = expr("+ 1");
     print_expression(exp);
 }
