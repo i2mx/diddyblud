@@ -395,6 +395,7 @@ void print_expression(struct Expression* expression)
         print_expression(expression->monad.expr);
         printf("%.*s ", (int)expression->monad.operation.len,
             expression->monad.operation.data);
+        break;
     case ExpressionKindDyad:
         print_expression(expression->dyad.left);
         print_expression(expression->dyad.right);
@@ -474,6 +475,6 @@ struct Expression* expr(const char* input)
 int main()
 {
     // test_lexer();
-    struct Expression* exp = expr("+ 1");
+    struct Expression* exp = expr("- 4");
     print_expression(exp);
 }
