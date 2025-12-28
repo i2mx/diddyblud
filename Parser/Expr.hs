@@ -329,3 +329,15 @@ exprAddress = satisfy f >> return AddressE
   where
     f (Token AddressT _) = True
     f _ = False
+
+fnP :: Parser ()
+fnP = void (satisfy f)
+  where
+    f (Token FnT _) = True
+    f _ = False
+
+number :: Parser Token
+number = satisfy isNum
+  where
+    isNum (Token (NumT _) _) = True
+    isNum _ = False

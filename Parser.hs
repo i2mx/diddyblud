@@ -8,7 +8,51 @@ import Parser.Combinators
 import Parser.Core
 import Parser.Expr
 
+data TypeTypes
+  = NamedType IdentifierName
+  | GenericType IdentifierName [TypeTypes]
+  | PointerType TypeTypes
+  | ArrayType (Maybe Int) TypeTypes
+  | FunctionType [TypeTypes] TypeTypes
+  deriving (Show)
+
+typeP =
+  -- genericType
+  functionType
+    <|> arrayType
+    <|> pointerType
+    <|> primaryType
+
+genericType = do
+  name <- identNames
+  parameters <- betweenBrackets (sepBy1 typeP comma)
+  return $ GenericType name parameters
+
+functionType = do
+  fnP
+  parameters <- betweenParen (sepBy typeP comma)
+  FunctionType parameters <$> typeP
+
+arrayType = do
+  kms <- betweenBrackets $ Parser.Combinators.optional number
+  let inside = case kms of
+        Nothing -> Nothing
+        Just (Token (NumT num) _) -> Just num
+  ArrayType inside <$> typeP
+
+pointerType = do
+  exprDereference
+  PointerType <$> typeP
+
+primaryType = do
+  name <- identNames
+  rest <- Parser.Combinators.optional $ betweenBrackets (sepBy1 typeP comma)
+  return $ case rest of
+    Nothing -> NamedType name
+    Just params -> GenericType name params
+
 -- Finally an expression parser that isn't ass
+-- this part is effectively done
 
 expr :: Parser Expr
 expr = exprAssignment
@@ -83,7 +127,7 @@ exprPrimary = do
         <|> exprNum
         <|> exprBlock
         <|> exprIfElse
-        <|> exprWhiteElse
+    -- <|> exprWhileElse -- TODO: need to figure out how i feel about this
     postfixes base =
       try arrayOp
         <|> try callOp
@@ -116,7 +160,7 @@ exprIfElse = do
   elseP
   IfElseE condition body <$> expr
 
-exprWhiteElse = do
+exprWhileElse = do
   whileP
   condition <- betweenParen expr
   post <- Parser.Combinators.optional $ do
@@ -178,7 +222,7 @@ run = do
   let lala = runLexer text
   mapM_ print lala
 
-  let x = runParser simpleStmt $ initParserState (runLexer text)
+  let x = runParser typeP $ initParserState (runLexer text)
   case x of
     (Left err) -> fail $ "Parse error" ++ show err
     (Right (result, state)) -> do

@@ -1,9 +1,23 @@
+https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
+
 some of the changes i made to c
 
 - added the while (expr) : (expr) statement
-- removed -> and a bunch of stuff
+- made if else and while else expressions
+- made blocks expressions if the last thing is not terminated by a semicolon
+
 - added comparison chaining
 - added use python style keywords
+
+- i plan to make labeled breaks but i haven't gotten there yet
+
+**things i must add eventually**:
+
+- piping
+- pattern matching / destructuring
+- compile-time polymorphism
+
+lexer -> expression parser -> parser -> idk
 
 # Lexing
 
@@ -94,4 +108,40 @@ kill myself
 <while_stmt> ::= "while" "(" <expr> ")" [ ":" "(" <expr> ")" ] <stmt>
 
 <return_stmt> ::= "return" <expr> ";"
+```
+
+<!-- TODO: i fucking hate my life -->
+
+## Type Parsing
+
+```
+<type>
+    ::= <identifier>
+     |  "*" <type>
+     |  "[" <int> "]" <type>
+     |  "fn" "(" <type_list>? ")" <type>
+     |  <identifier> "[" <type_list> "]"
+```
+
+because the type family is "indexed" by types :sob:
+
+## Declarations
+
+```
+<program> ::= <declaration>*
+```
+
+```
+<declaration>
+    ::= <function_decl>
+     |  <variable_decl>
+     |  <struct_decl>
+     |  <type_decl>
+
+<param_list>
+    ::= <param>
+     |  <param> "," <param_list>
+
+<param>
+    ::= <identifier> ":" <type>
 ```

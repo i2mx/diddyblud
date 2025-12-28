@@ -66,7 +66,7 @@ data TokenKind
   | DedentT
   | NewLineT
   | ColonT
-  | DefT -- keywords
+  | FnT -- keywords
   | WhileT
   | IfT
   | ElifT
@@ -196,7 +196,7 @@ getTokenKind "false" = FalseT
 getTokenKind "not" = NotT
 getTokenKind "and" = AndT
 getTokenKind "or" = OrT
-getTokenKind "def" = DefT
+getTokenKind "fn" = FnT
 getTokenKind "if" = IfT
 getTokenKind "elif" = ElifT
 getTokenKind "else" = ElseT
