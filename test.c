@@ -1,64 +1,127 @@
 #include <assert.h>
 #include <ctype.h>
+#include <math.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// start of lexing code
+// // start of ArrayList implementation
 
+// TODO: test this shit
+
+// // c sucks
+
+#define ArrayList(T) ArrayList_##T
+
+#define DEFINE_ARRAYLIST(T) \
+    struct ArrayList(T) {   \
+        size_t len;         \
+        size_t cap;         \
+        T* data;            \
+    }
+
+// there was a line here fixed by chatgpt which was uh
+// i wrote sizeof(char) but it actually should be sizeof(T) so that's awesome
+#define append(T, arrayList, x)                                               \
+    do {                                                                      \
+        if ((arrayList).len < (arrayList).cap) {                              \
+            (arrayList).data[(arrayList).len++] = (x);                        \
+        } else {                                                              \
+            size_t newCap = (arrayList).cap ? (arrayList).cap * 2 : 1;        \
+            T* newBuffer = malloc(sizeof(T) * newCap);                        \
+            memcpy(newBuffer, (arrayList).data, sizeof(T) * (arrayList).len); \
+            free((arrayList).data);                                           \
+            (arrayList).data = newBuffer;                                     \
+            (arrayList).cap = newCap;                                         \
+            (arrayList).data[(arrayList).len++] = x;                          \
+        }                                                                     \
+    } while (0)
+
+#define empty_list(T) \
+    (struct ArrayList(T)) { .cap = 1, .len = 0, .data = malloc(sizeof(T)) }
+
+#define free_list(arrayList) free((arrayList).data)
+
+// // end of ArrayList implementation
+
+// // start of lexing code
+
+// a custom string type for describing slices of byte arrays /
+// a string_view
 struct String {
     const char* data;
     size_t len;
 };
 
-struct String make_string(const char* s)
+// makes a struct String out of a c-style string
+static inline struct String make_string(const char* s)
 {
     return (struct String) { s, strlen(s) };
 }
 
-bool s_is_s(struct String s1, const char* s2)
+// checks to see if a struct String is the same as a c-style string
+static inline bool seq(struct String s1, const char* s2)
 {
     return strncmp(s1.data, s2, s1.len) == 0 && s1.len == strlen(s2);
 }
 
+// a custom type to describe a current in a source code
 struct SourcePos {
     int line;
     int column;
     size_t offset;
 };
 
+// describes a continuous section / range in source code
 struct SourceRange {
     const char* filename;
     struct SourcePos start;
     struct SourcePos end;
 };
 
+// the kinds of tokens that my lexer can produce, try to keep this minimal for now
 enum TokenKind {
+    // TODO: expand out tokens so known tokens are a single enum item for example expand
+    // keyword to TokenKindVal TokenKindIf and so on
+
     TokenKindIllegal,
     TokenKindEof,
-    TokenKindNat, // 0 or 013 or 123
-    TokenKindIdent, // _hello_world1 or _123a
+
+    TokenKindNat, // Examples: 0, 013, 123
+
+    TokenKindIdent, // Examples: hello_world1, a_2
+
+    TokenKindKeyword, // Examples: val, if, then, else
+                      //
+                      // try to have as few of these are possible
+
     TokenKindOperator, // +, - |> <? =>
+
     TokenKindLParen, // (
     TokenKindRParen, // )
+
     TokenKindLBracket, // [
     TokenKindRBracket, // ]
+
     TokenKindLBrace, // {
     TokenKindRBrace, // }
+
     TokenKindSemicolon, // ;
     TokenKindComma, // ,
 };
 
-// A token is either a known symbol like '('
-// or a class of symbols like identifiers
+// Lexigraphical elements that are produced by the lexer in lexigraphical analysis
+// and consumed by the parser to produce an AST
 struct Token {
     enum TokenKind kind;
     struct String lexeme;
     struct SourceRange range;
 };
 
-void print_token(struct Token token)
+// FOR DEBUGGING
+void print_token(const struct Token token)
 {
     const char* kind_name;
 
@@ -107,18 +170,30 @@ void print_token(struct Token token)
         break;
     }
 
+    // I asked chatgpt to write this function and it's a little embarassing.
     printf("[Token] Kind: %-12s | Lexeme: '%.*s' | Line: %d, Column: %d\n",
         kind_name, (int)token.lexeme.len, token.lexeme.data,
         token.range.start.line, token.range.start.column);
 }
 
+// Describes the state of a lexer, such as how far along
+// it is through the source code
+//
+// // TODO: some optimisation to do with storing
+// the current and next_token so that peek_token is faster
 struct Lexer {
     struct String input;
     struct SourcePos pos;
 };
 
+// Initializes the state of a lexer based on an input string.
 struct Lexer* make_lexer(const char* input)
 {
+    // NOTE: we only ever make one lexer and it's very cheap
+    // so this should never leak memoery
+
+    // NOTE: this doesn't need to malloc at all?
+
     struct Lexer* lexer = malloc(sizeof(struct Lexer));
     assert(lexer && "allocation should never fail");
 
@@ -130,19 +205,32 @@ struct Lexer* make_lexer(const char* input)
     return lexer;
 }
 
+// A helper function which returns the character
+// the lexer is currently up to and \0 if the
+// position of the lexer exceeds the length of the string
 char peek(struct Lexer* lexer)
 {
+    // TODO: I'm sure this check is unnecessary
+    // if we are smart enough to not continue after
+    // we reach EOF
     if (lexer->pos.offset >= (*lexer).input.len)
         return '\0';
     else
         return lexer->input.data[(*lexer).pos.offset];
 }
 
+// Updates the lexer state to move the the next character
+// in the input string
 void advance(struct Lexer* lexer)
 {
+    // TODO: maybe useless assert?
     assert(lexer->pos.offset < lexer->input.len
         && "cannot advance past end of input");
 
+    // TODO: we usually skip whitespace and so
+    // most of the time when we call advance we know to
+    // just use the else branch but we are having to
+    // do this check which can be a little annoying
     if (lexer->input.data[lexer->pos.offset] == '\n') {
         ++lexer->pos.line;
         lexer->pos.column = 1;
@@ -154,13 +242,20 @@ void advance(struct Lexer* lexer)
     return;
 }
 
-void skip_whitespace(struct Lexer* lexer)
+// advances the position of the lexer until we reach a
+// non whitespace character,
+static inline void skip_whitespace(struct Lexer* lexer)
 {
-    while (peek(lexer) == ' ')
+    // the language will not be newline
+    // or whitespace sensitive so we will skip these
+    // however I have people who use tabs so we will not skip these
+    // and then explicitly call out that a tab has been used.
+    while (peek(lexer) == ' ' || peek(lexer) == '\n')
         advance(lexer);
 }
 
-bool isspecial(char c)
+// determines if a character belongs in an operator
+static inline bool isspecial(char c)
 {
     return (
         c == '!'
@@ -182,7 +277,8 @@ bool isspecial(char c)
         || c == '~');
 }
 
-bool isdelim(char c)
+// determines if a character is a "deliminator"
+static inline bool isdelim(const char c)
 {
     return (
         c == '('
@@ -195,6 +291,7 @@ bool isdelim(char c)
         || c == ',');
 }
 
+// returns the exact deliminater type of a character
 enum TokenKind delim_kind(char c)
 {
     switch (c) {
@@ -218,6 +315,8 @@ enum TokenKind delim_kind(char c)
     return TokenKindIllegal;
 }
 
+// takes the token at the lexer's current position and moves the position
+// of the lexer forward
 struct Token next_token(struct Lexer* lexer)
 {
     skip_whitespace(lexer);
@@ -225,7 +324,7 @@ struct Token next_token(struct Lexer* lexer)
 
     char c = peek(lexer);
 
-    if (c == '\0') { // EOF
+    if (c == '\0') {
         return (struct Token) {
             .kind = TokenKindEof,
             .lexeme = { (*lexer).input.data + start.offset, 1 },
@@ -283,6 +382,7 @@ struct Token next_token(struct Lexer* lexer)
         };
     }
 
+    // TODO: support backtick surrounded words to be used as operators
     if (isspecial(c)) {
         while (isspecial(peek(lexer))) {
             advance(lexer);
@@ -308,31 +408,30 @@ struct Token next_token(struct Lexer* lexer)
     exit(1);
 }
 
+// returns the token at the lexer's current position
 struct Token peek_token(struct Lexer* lexer)
 {
+    // TODO: optimize
     struct SourcePos start = lexer->pos;
     struct Token t = next_token(lexer);
     lexer->pos = start;
     return t;
 }
-// end of lexing code
 
-void test_lexer()
-{
-    struct Lexer* lexer = make_lexer("1 + 2 * 3");
-    struct Token t;
-    while ((t = next_token(lexer)).kind != TokenKindEof) {
-        print_token(t);
-    }
-    free(lexer);
-}
+// // end of lexing code
 
-// start of expression parsing code
+// // start of expression parsing code
+
 enum ExpressionKind {
     ExpressionKindAtom,
     ExpressionKindMonad,
     ExpressionKindDyad,
+    ExpressionKindCall,
+    ExpressionKindBranch,
 };
+
+typedef struct Expression* Expression;
+DEFINE_ARRAYLIST(Expression);
 
 struct Expression {
     enum ExpressionKind kind;
@@ -347,19 +446,28 @@ struct Expression {
             struct Expression* left;
             struct Expression* right;
         } dyad;
+        struct {
+            struct Expression* function;
+            struct ArrayList(Expression) argument_list;
+        } call;
+        struct {
+            struct Expression* condition;
+            struct Expression* if_branch;
+            struct Expression* else_branch;
+        } branch;
     };
 };
 
-// returns true if something we fail to find the binding
+// returns true if we fail to find the binding
 // power of an infix operator
 bool infix_binding_power(struct String op, int* lbp, int* rbp)
 {
-    if (s_is_s(op, "+") || s_is_s(op, "-")) {
+    if (seq(op, "+") || seq(op, "-")) {
         *lbp = 1;
         *rbp = 2;
         return false;
     }
-    if (s_is_s(op, "*") || s_is_s(op, "/")) {
+    if (seq(op, "*") || seq(op, "/")) {
         *lbp = 3;
         *rbp = 4;
         return false;
@@ -367,22 +475,22 @@ bool infix_binding_power(struct String op, int* lbp, int* rbp)
     return true;
 }
 
-// returns true if something we fail to find the binding
+// returns true if we fail to find the binding
 // power of an prefix operator
 bool prefix_binding_power(struct String op, int* rbp)
 {
-    if (s_is_s(op, "+") || s_is_s(op, "-")) {
+    if (seq(op, "+") || seq(op, "-")) {
         *rbp = 6;
         return false;
     }
     return true;
 }
 
-// returns true if something we fail to find the binding
+// returns true if  we fail to find the binding
 // power of an postfix operator
 bool postfix_binding_power(struct String op, int* lbp)
 {
-    if (s_is_s(op, "!")) {
+    if (seq(op, "!")) {
         *lbp = 7;
         return false;
     }
@@ -402,24 +510,41 @@ void print_expression(struct Expression* expression)
         break;
     case ExpressionKindMonad:
         print_expression(expression->monad.expr);
-        printf("[%.*s] ", (int)expression->monad.operation.len,
+        printf("[1]%.*s ", (int)expression->monad.operation.len,
             expression->monad.operation.data);
         break;
     case ExpressionKindDyad:
         print_expression(expression->dyad.left);
         print_expression(expression->dyad.right);
-        printf("%.*s ", (int)expression->dyad.operation.len,
+        printf("[2]%.*s ", (int)expression->dyad.operation.len,
             expression->dyad.operation.data);
         break;
+    case ExpressionKindCall:
+        for (size_t i = 0; i < expression->call.argument_list.len; ++i) {
+            print_expression(expression->call.argument_list.data[i]);
+        }
+        printf("[%d][ ", (int)expression->call.argument_list.len);
+        print_expression(expression->call.function);
+        printf("]");
+        break;
+    case ExpressionKindBranch:
+        fputs("not implemented yet", stderr);
     }
 }
 
 // a null pointer is used to indicate an empty expression
 struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
 {
-    struct Token t = next_token(lexer);
+    // NOTE: the rule for expressions is to allocate them and then
+    // never discard them, we need to keep them around the whole time
+    // as long we never create more expressions than necessary we don't
+    // leak memory
 
     struct Expression* lhs;
+
+    struct Token t = next_token(lexer);
+    // TODO: make sure we exhaustively handle this it's very important
+
     if (t.kind == TokenKindIdent || t.kind == TokenKindNat) {
         // atoms
         lhs = malloc(sizeof(struct Expression));
@@ -438,7 +563,6 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 t.range.filename);
             exit(1);
         }
-
         if ((t2 = next_token(lexer)).kind != TokenKindRParen) {
             fprintf(stderr,
                 "[Parsing Error] expected matching closing parenthesis"
@@ -449,38 +573,45 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 (int)t2.lexeme.len,
                 t2.lexeme.data,
                 t2.range.start.line,
-                t2.range.end.column,
+                t2.range.start.column,
                 t.range.filename);
             exit(1);
         }
     } else if (t.kind == TokenKindOperator) {
         // prefix operators
         int rbp;
-        if (prefix_binding_power(t.lexeme, &rbp) == 0) {
-            struct Expression* rhs = expr_bp(lexer, rbp);
-            if (rhs == NULL) {
-                fprintf(stderr,
-                    "[Parsing Error] missing expression on the right hand side"
-                    " of the prefix operator '%.*s' after %d:%d in %s",
-                    (int)t.lexeme.len,
-                    t.lexeme.data,
-                    t.range.end.line,
-                    t.range.end.column,
-                    t.range.filename);
-                exit(1);
-            }
-            lhs = malloc(sizeof(struct Expression));
-            lhs->kind = ExpressionKindMonad;
-            lhs->monad.expr = rhs;
-            lhs->monad.operation = t.lexeme;
+        if (prefix_binding_power(t.lexeme, &rbp)) {
+            fprintf(stderr,
+                "[Parsing Error] nonexistent prefix operator '%.*s' at %d:%d in %s",
+                (int)t.lexeme.len,
+                t.lexeme.data,
+                t.range.start.line,
+                t.range.start.column,
+                t.range.filename);
+            exit(1);
         }
+        struct Expression* rhs = expr_bp(lexer, rbp);
+        if (rhs == NULL) {
+            fprintf(stderr,
+                "[Parsing Error] missing expression on the right hand side"
+                " of the prefix operator '%.*s' after %d:%d in %s",
+                (int)t.lexeme.len,
+                t.lexeme.data,
+                t.range.end.line,
+                t.range.end.column,
+                t.range.filename);
+            exit(1);
+        }
+        lhs = malloc(sizeof(struct Expression));
+        lhs->kind = ExpressionKindMonad;
+        lhs->monad.expr = rhs;
+        lhs->monad.operation = t.lexeme;
     } else {
         // failure
         return NULL;
     }
 
-    // extend the expression as much as possible
-    // using post and infix operators
+    // extend the expression as much as possible using post and infix operators
     while (true) {
         struct Token t = peek_token(lexer);
         int lbp, rbp;
@@ -511,7 +642,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     (int)t2.lexeme.len,
                     t2.lexeme.data,
                     t2.range.start.line,
-                    t2.range.end.column,
+                    t2.range.start.column,
                     t.range.filename);
                 exit(1);
             }
@@ -526,8 +657,62 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             continue;
 
         } else if (t.kind == TokenKindLParen) {
-            printf("Function call syntax has yet to be implemented");
-            exit(1);
+            // TODO: ERROR MESSAGES PLEASE
+
+            // NOTE: disallow doing f(a, b, c,) because surely
+            // function interfaces rarely change
+
+            // build a argument list
+            struct Token t2;
+            next_token(lexer);
+
+            struct ArrayList(Expression) el = empty_list(Expression);
+
+            // this is our first item in the list
+            struct Expression* ilhs = expr_bp(lexer, 0);
+            if (ilhs == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression on the right hand side"
+                    " of the parenthesis '(' for argument list after %d:%d in %s",
+                    t.range.end.line,
+                    t.range.end.column,
+                    t.range.filename);
+                exit(1);
+            }
+            append(Expression, el, ilhs);
+
+            while (true) {
+                t2 = next_token(lexer);
+                if (t2.kind == TokenKindRParen)
+                    break;
+                if (t2.kind != TokenKindComma) {
+                    fprintf(stderr,
+                        "[Parsing Error] expected comma ',' or closing parenthesis"
+                        " starting at %d:%d for argument list"
+                        " instead found '%.*s' at %d:%d in %s ",
+                        t.range.start.line,
+                        t.range.start.column,
+                        (int)t2.lexeme.len,
+                        t2.lexeme.data,
+                        t2.range.start.line,
+                        t2.range.start.column,
+                        t.range.filename);
+                    exit(1);
+                }
+                ilhs = expr_bp(lexer, 0);
+                append(Expression, el, ilhs);
+            }
+            struct Expression* new = malloc(sizeof(struct Expression));
+
+            // horrible hacky code
+            // TODO: ahhhhhh
+
+            new->kind = ExpressionKindCall;
+            new->call.function = lhs;
+            new->call.argument_list = el;
+
+            lhs = new;
+            continue;
         }
 
         if (t.kind != TokenKindOperator)
@@ -558,7 +743,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         // finally handle infix
         if (infix_binding_power(t.lexeme, &lbp, &rbp)) {
             fprintf(stderr,
-                "[Parsing Error] nonexistent operator '%.*s' at %d:%d in %s",
+                "[Parsing Error] nonexistent infix operator '%.*s' at %d:%d in %s",
                 (int)t.lexeme.len,
                 t.lexeme.data,
                 t.range.start.line,
@@ -605,10 +790,9 @@ struct Expression* expr(const char* input)
     struct Lexer* lexer = make_lexer(input);
     return expr_bp(lexer, 0);
 }
-// end of the expression parsing code
+// end of expression parsing code
 int main()
 {
-    // test_lexer();
-    struct Expression* exp = expr("123[132] + atan[x] + 1_000_000");
+    struct Expression* exp = expr("f(1,22,3,4,10)(1,2)");
     print_expression(exp);
 }

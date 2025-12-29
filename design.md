@@ -1,5 +1,56 @@
 https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
 
+AHHHHHHHHHHHHHHHHHHHHHHHHHH
+
+- stack and rpn is a good way of thinking about things
+- if expr then expr else expr is an expression
+- expressions can also be (the precise implementation of this i got from like
+  zig, f#, rust)
+  ```
+  {
+    let x = 41 in
+    let y = 69 in 
+    x+y
+  }
+  ```
+  where instead of in we write ; so we have the familiar
+  ```
+  {
+    let x = 41;
+    let y = 69;
+    x+y
+  }
+  ```
+  we can also have
+  ```
+  {
+    let x = 41;
+    let y = 69;
+    x+y;
+    x+y;
+  }
+  ```
+
+  which implicitly is
+  ```
+  {
+    let x = 41; 
+    let y = 41;
+    let NULL = x+y;
+    void
+  }
+  ```
+
+in a similar way
+
+```
+if x < 10 expr print(x)
+```
+
+should be the same as
+
+if x < 10 expr print(x)
+
 some of the changes i made to c
 
 - added the while (expr) : (expr) statement
