@@ -668,18 +668,25 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
 
             struct ArrayList(Expression) el = empty_list(Expression);
 
-            // this is our first item in the list
+            // check if the argumetn list is completely empty
+            if (peek_token(lexer).kind == TokenKindRParen) {
+                next_token(lexer);
+                goto make_call_expression;
+            }
+
+            // now assume that the argument list must have a bunch of expressions
             struct Expression* ilhs = expr_bp(lexer, 0);
+            append(Expression, el, ilhs);
+
             if (ilhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression on the right hand side"
-                    " of the parenthesis '(' for argument list after %d:%d in %s",
-                    t.range.end.line,
-                    t.range.end.column,
+                    " of open parenthesis '(' inside the argument list beginning at %d:%d in %s",
+                    t.range.start.line,
+                    t.range.start.column,
                     t.range.filename);
                 exit(1);
             }
-            append(Expression, el, ilhs);
 
             while (true) {
                 t2 = next_token(lexer);
@@ -700,8 +707,22 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     exit(1);
                 }
                 ilhs = expr_bp(lexer, 0);
+                if (ilhs == NULL) {
+                    fprintf(stderr,
+                        "[Parsing Error] missing expression on the right hand side"
+                        " of comma ',' after %d:%d inside the argument list beginning at %d:%d in %s",
+                        t2.range.end.line,
+                        t2.range.end.column,
+                        t.range.start.line,
+                        t.range.start.column,
+                        t.range.filename);
+                    exit(1);
+                }
                 append(Expression, el, ilhs);
             }
+
+        make_call_expression:
+
             struct Expression* new = malloc(sizeof(struct Expression));
 
             // horrible hacky code
@@ -769,7 +790,6 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 t.range.filename);
             exit(1);
         }
-        assert(rhs != NULL && "good luck");
 
         // combine into one expression
         struct Expression* new = malloc(sizeof(struct Expression));
@@ -793,6 +813,6 @@ struct Expression* expr(const char* input)
 // end of expression parsing code
 int main()
 {
-    struct Expression* exp = expr("f(1,22,3,4,10)(1,2)");
+    struct Expression* exp = expr("f(,x)");
     print_expression(exp);
 }
