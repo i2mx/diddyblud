@@ -44,14 +44,36 @@ AHHHHHHHHHHHHHHHHHHHHHHHHHH
 in a similar way
 
 ```
-if x < 10 expr print(x)
+if x < 10 print(x)
 ```
 
 should be the same as
 
-if x < 10 expr print(x)
+if x < 10 print(x)
 
-some of the changes i made to c
+---
+
+I think that `expr ; expr ; expr` should be an expression which should evaluate
+to the **type** of the final expression but combine the effect of all the
+expressions.
+
+Similarly `expr ; expr ; expr;` should return the type void but combine the
+effect of all the expressions before it.
+
+`if expr then expr else expr` is an expression where the type of the two
+branches should be the same and the overall effect is the effect of each branch
+
+> this leads to funny looking code like
+
+```
+else
+  print("the searched item is not in the list")
+  found = false;
+  score = score - 1;
+  void
+```
+
+## `while tr`
 
 - added the while (expr) : (expr) statement
 - made if else and while else expressions

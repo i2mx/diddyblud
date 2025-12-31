@@ -165,13 +165,16 @@ void print_token(const struct Token token)
     case TokenKindComma:
         kind_name = "Comma";
         break;
+    case TokenKindKeyword:
+        kind_name = "Keyword";
+        break;
     default:
         kind_name = "Unknown";
         break;
     }
 
     // I asked chatgpt to write this function and it's a little embarassing.
-    printf("[Token] Kind: %-12s | Lexeme: '%.*s' | Line: %d, Column: %d\n",
+    printf("[Token] Kind: %-12s | Lexeme: %-8.*s | Line: %d, Column: %d\n",
         kind_name, (int)token.lexeme.len, token.lexeme.data,
         token.range.start.line, token.range.start.column);
 }
@@ -335,6 +338,18 @@ struct Token next_token(struct Lexer* lexer)
         };
     }
 
+    if (c == ';') {
+        advance(lexer);
+        return (struct Token) {
+            .kind = TokenKindSemicolon,
+            .lexeme = { (*lexer).input.data + start.offset, 1 },
+            .range = {
+                .start = start,
+                .end = start,
+            }
+        };
+    }
+
     if (isdelim(c)) {
         advance(lexer);
         return (struct Token) {
@@ -369,12 +384,16 @@ struct Token next_token(struct Lexer* lexer)
         while (peek(lexer) == '_' || isalnum(peek(lexer))) {
             advance(lexer);
         }
+        struct String s = {
+            .data = (*lexer).input.data + start.offset,
+            .len = (*lexer).pos.offset - start.offset,
+        };
+
         return (struct Token) {
-            .kind = TokenKindIdent,
-            .lexeme = {
-                .data = (*lexer).input.data + start.offset,
-                .len = (*lexer).pos.offset - start.offset,
-            },
+            .kind = seq(s, "if") || seq(s, "then") || seq(s, "else")
+                ? TokenKindKeyword
+                : TokenKindIdent,
+            .lexeme = s,
             .range = {
                 .start = start,
                 .end = (*lexer).pos,
@@ -400,7 +419,7 @@ struct Token next_token(struct Lexer* lexer)
         };
     }
 
-    fprintf(stderr, "[Lexer Error] found illegal character '%c' at %d:%d in %s",
+    fprintf(stderr, "[Lexer Error] found illegal character '%c' at %d:%d in %s \n",
         peek(lexer),
         start.line,
         start.column,
@@ -459,28 +478,47 @@ struct Expression {
 };
 
 // returns true if we fail to find the binding
-// power of an infix operator
-bool infix_binding_power(struct String op, int* lbp, int* rbp)
+// power of an prefix operator
+bool prefix_binding_power(struct String op, int* rbp)
 {
     if (seq(op, "+") || seq(op, "-")) {
-        *lbp = 1;
-        *rbp = 2;
+        *rbp = 13;
         return false;
     }
-    if (seq(op, "*") || seq(op, "/")) {
-        *lbp = 3;
-        *rbp = 4;
+    if (seq(op, "if")) {
+        *rbp = 3;
         return false;
     }
     return true;
 }
 
 // returns true if we fail to find the binding
-// power of an prefix operator
-bool prefix_binding_power(struct String op, int* rbp)
+// power of an infix operator
+bool infix_binding_power(struct String op, int* lbp, int* rbp)
 {
+    if (seq(op, ";")) {
+        *lbp = 2;
+        *rbp = 1;
+        return false;
+    }
+    if (seq(op, "=")) {
+        *lbp = 6;
+        *rbp = 5;
+        return false;
+    }
+    if (seq(op, "?")) {
+        *lbp = 8;
+        *rbp = 7;
+        return false;
+    }
     if (seq(op, "+") || seq(op, "-")) {
-        *rbp = 6;
+        *lbp = 9;
+        *rbp = 10;
+        return false;
+    }
+    if (seq(op, "*") || seq(op, "/")) {
+        *lbp = 11;
+        *rbp = 12;
         return false;
     }
     return true;
@@ -491,7 +529,11 @@ bool prefix_binding_power(struct String op, int* rbp)
 bool postfix_binding_power(struct String op, int* lbp)
 {
     if (seq(op, "!")) {
-        *lbp = 7;
+        *lbp = 15;
+        return false;
+    }
+    if (seq(op, "[") || seq(op, "(")) {
+        *lbp = 15;
         return false;
     }
     return true;
@@ -514,10 +556,16 @@ void print_expression(struct Expression* expression)
             expression->monad.operation.data);
         break;
     case ExpressionKindDyad:
-        print_expression(expression->dyad.left);
-        print_expression(expression->dyad.right);
-        printf("[2]%.*s ", (int)expression->dyad.operation.len,
-            expression->dyad.operation.data);
+        if (seq(expression->dyad.operation, ";")) {
+            print_expression(expression->dyad.left);
+            printf("; ");
+            print_expression(expression->dyad.right);
+        } else {
+            print_expression(expression->dyad.left);
+            print_expression(expression->dyad.right);
+            printf("[2]%.*s ", (int)expression->dyad.operation.len,
+                expression->dyad.operation.data);
+        }
         break;
     case ExpressionKindCall:
         for (size_t i = 0; i < expression->call.argument_list.len; ++i) {
@@ -525,14 +573,27 @@ void print_expression(struct Expression* expression)
         }
         printf("[%d][ ", (int)expression->call.argument_list.len);
         print_expression(expression->call.function);
-        printf("]");
+        printf("] ");
         break;
     case ExpressionKindBranch:
-        fputs("not implemented yet", stderr);
+        printf("[ ");
+        print_expression(expression->branch.condition);
+        printf("] ");
+        printf("[ ");
+        print_expression(expression->branch.if_branch);
+        printf("] ");
+        printf("[ ");
+        print_expression(expression->branch.else_branch);
+        printf("] ");
+        printf("? ");
+        break;
     }
 }
 
-// a null pointer is used to indicate an empty expression
+// TODO: some errors should totally return NULL instead of exiting so that we have
+// a stack of error messages
+
+//  a null pointer is used to indicate an empty expression
 struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
 {
     // NOTE: the rule for expressions is to allocate them and then
@@ -550,6 +611,91 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         lhs = malloc(sizeof(struct Expression));
         lhs->kind = ExpressionKindAtom;
         lhs->atom = t.lexeme;
+    } else if (t.kind == TokenKindKeyword) { // hmmmm
+        if (seq(t.lexeme, "if")) { // if expression
+            // TODO: decide the precedence of this + errors
+            int rbp;
+            prefix_binding_power(t.lexeme, &rbp);
+
+            struct Expression* condition = expr_bp(lexer, rbp);
+            if (condition == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression after the 'if' keyword "
+                    " at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            struct Token t2;
+            if (!seq((t2 = next_token(lexer)).lexeme, "then")) {
+                fprintf(stderr,
+                    "[Parsing Error] expected 'then' to continue 'if'"
+                    " expression beginning at %d:%d instead found '%.*s' at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    (int)t2.lexeme.len,
+                    t2.lexeme.data,
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            lhs = expr_bp(lexer, rbp);
+            if (lhs == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression after the 'then' keyword"
+                    " at %d:%d to continue the 'if' expression starting at %d:%d in %s \n",
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            // peek the next token to see if it an else
+            struct Token t3 = peek_token(lexer);
+            if (!seq(t3.lexeme, "else")) {
+                struct Expression* new = malloc(sizeof(struct Expression));
+                new->kind = ExpressionKindBranch;
+                new->branch.condition = condition;
+                new->branch.if_branch = lhs;
+                new->branch.else_branch = NULL;
+                lhs = new;
+            } else {
+                next_token(lexer);
+                struct Expression* rhs = expr_bp(lexer, rbp);
+                if (rhs == NULL) {
+                    fprintf(stderr,
+                        "[Parsing Error] missing expression after the 'else' keyword"
+                        " at %d:%d to continue the 'if-else' expression starting at %d:%d in %s \n",
+                        t3.range.start.line,
+                        t3.range.start.column,
+                        t.range.start.line,
+                        t.range.start.column,
+                        t.range.filename);
+                    exit(1);
+                }
+
+                struct Expression* new = malloc(sizeof(struct Expression));
+                new->kind = ExpressionKindBranch;
+                new->branch.condition = condition;
+                new->branch.if_branch = lhs;
+                new->branch.else_branch = rhs;
+                lhs = new;
+            }
+
+        } else {
+            fprintf(stderr,
+                "[Parsing Error] an expression was expected at %d:%d in %s and the keyword"
+                " '%.*s' cannot be used to begin an expression. \n",
+                t.range.start.line,
+                t.range.start.column,
+                t.range.filename,
+                (int)t.lexeme.len,
+                t.lexeme.data);
+            return NULL;
+        }
     } else if (t.kind == TokenKindLParen) {
         // parenthesised expressions
         struct Token t2;
@@ -557,7 +703,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         if (lhs == NULL) {
             fprintf(stderr,
                 "[Parsing Error] missing expression after the open parenthesis '('"
-                " at %d:%d in %s",
+                " at %d:%d in %s \n",
                 t.range.start.line,
                 t.range.start.column,
                 t.range.filename);
@@ -567,7 +713,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             fprintf(stderr,
                 "[Parsing Error] expected matching closing parenthesis"
                 " ')' for '(' at %d:%d to enclose expression"
-                " instead found '%.*s' at %d:%d in %s ",
+                " instead found '%.*s' at %d:%d in %s \n",
                 t.range.start.line,
                 t.range.start.column,
                 (int)t2.lexeme.len,
@@ -582,7 +728,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         int rbp;
         if (prefix_binding_power(t.lexeme, &rbp)) {
             fprintf(stderr,
-                "[Parsing Error] nonexistent prefix operator '%.*s' at %d:%d in %s",
+                "[Parsing Error] nonexistent prefix operator '%.*s' at %d:%d in %s \n",
                 (int)t.lexeme.len,
                 t.lexeme.data,
                 t.range.start.line,
@@ -594,7 +740,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         if (rhs == NULL) {
             fprintf(stderr,
                 "[Parsing Error] missing expression on the right hand side"
-                " of the prefix operator '%.*s' after %d:%d in %s",
+                " of the prefix operator '%.*s' after %d:%d in %s \n",
                 (int)t.lexeme.len,
                 t.lexeme.data,
                 t.range.end.line,
@@ -619,14 +765,21 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         // special post fixes
         if (t.kind == TokenKindLBracket) {
             // array access
+            // TODO: currently useless because
+            postfix_binding_power(t.lexeme, &lbp);
+            if (lbp < minbp) {
+                break;
+            }
+
             struct Token t2;
             next_token(lexer);
-            struct Expression* rhs = expr_bp(lexer, rbp);
+            struct Expression* rhs = expr_bp(lexer, 0);
+            // rbp = 0
 
             if (rhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression after the open bracket '[' "
-                    " at %d:%d in %s",
+                    " at %d:%d in %s \n",
                     t.range.end.line,
                     t.range.end.column,
                     t.range.filename);
@@ -636,7 +789,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 fprintf(stderr,
                     "[Parsing Error] expected matching closing bracket ']'"
                     " for '[' at %d:%d for indexed access,"
-                    " instead found '%.*s' at %d:%d in %s",
+                    " instead found '%.*s' at %d:%d in %s \n",
                     t.range.start.line,
                     t.range.start.column,
                     (int)t2.lexeme.len,
@@ -662,6 +815,15 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             // NOTE: disallow doing f(a, b, c,) because surely
             // function interfaces rarely change
 
+            // TODO: this vode is repeated for all branches
+            // but the error handling is different in these cases?? maybe
+            // ahhhh this code is a disaster
+
+            postfix_binding_power(t.lexeme, &lbp);
+            if (lbp < minbp) {
+                break;
+            }
+
             // build a argument list
             struct Token t2;
             next_token(lexer);
@@ -681,7 +843,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             if (ilhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression on the right hand side"
-                    " of open parenthesis '(' inside the argument list beginning at %d:%d in %s",
+                    " of open parenthesis '(' inside the argument list beginning at %d:%d in %s \n",
                     t.range.start.line,
                     t.range.start.column,
                     t.range.filename);
@@ -696,7 +858,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     fprintf(stderr,
                         "[Parsing Error] expected comma ',' or closing parenthesis"
                         " starting at %d:%d for argument list"
-                        " instead found '%.*s' at %d:%d in %s ",
+                        " instead found '%.*s' at %d:%d in %s \n",
                         t.range.start.line,
                         t.range.start.column,
                         (int)t2.lexeme.len,
@@ -710,7 +872,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 if (ilhs == NULL) {
                     fprintf(stderr,
                         "[Parsing Error] missing expression on the right hand side"
-                        " of comma ',' after %d:%d inside the argument list beginning at %d:%d in %s",
+                        " of comma ',' after %d:%d inside the argument list beginning at %d:%d in %s \n",
                         t2.range.end.line,
                         t2.range.end.column,
                         t.range.start.line,
@@ -736,7 +898,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             continue;
         }
 
-        if (t.kind != TokenKindOperator)
+        if (t.kind != TokenKindOperator && t.kind != TokenKindSemicolon)
             // no more way to extend the operator
             break;
 
@@ -764,7 +926,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         // finally handle infix
         if (infix_binding_power(t.lexeme, &lbp, &rbp)) {
             fprintf(stderr,
-                "[Parsing Error] nonexistent infix operator '%.*s' at %d:%d in %s",
+                "[Parsing Error] nonexistent infix operator '%.*s' at %d:%d in %s \n",
                 (int)t.lexeme.len,
                 t.lexeme.data,
                 t.range.start.line,
@@ -777,12 +939,14 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             break;
 
         next_token(lexer);
+
         // once we have taken an operator we need an expression on the right hand side
+
         struct Expression* rhs = expr_bp(lexer, rbp);
         if (rhs == NULL) {
             fprintf(stderr,
                 "[Parsing Error] missing expression on the right hand side"
-                " of the infix operator '%.*s' after %d:%d in %s",
+                " of the infix operator '%.*s' after %d:%d in %s \n",
                 (int)t.lexeme.len,
                 t.lexeme.data,
                 t.range.end.line,
@@ -813,6 +977,16 @@ struct Expression* expr(const char* input)
 // end of expression parsing code
 int main()
 {
-    struct Expression* exp = expr("f(,x)");
+    const char* input = "1 = 2 = if eq(x,y) then (x=x+1;print(x);true) else false";
+
+    puts("Lexical Analysis:");
+    struct Lexer* lexer = make_lexer(input);
+    struct Token t;
+    while ((t = next_token(lexer)).kind != TokenKindEof) {
+        print_token(t);
+    }
+
+    puts("\nParsing:");
+    struct Expression* exp = expr(input);
     print_expression(exp);
 }
