@@ -1,0 +1,8 @@
+let a = ( let b = 1; b );
+print(a)
+
+fun add(a,b) = a + b    
+
+fun main() = (
+
+)

@@ -93,7 +93,7 @@ enum TokenKind {
 
     TokenKindIdent, // Examples: hello_world1, a_2
 
-    TokenKindKeyword, // Examples: val, if, then, else
+    TokenKindKeyword, // Examples: let, val, if, then, else, while, do, end
                       //
                       // try to have as few of these are possible
 
@@ -253,7 +253,8 @@ static inline void skip_whitespace(struct Lexer* lexer)
     // or whitespace sensitive so we will skip these
     // however I have people who use tabs so we will not skip these
     // and then explicitly call out that a tab has been used.
-    while (peek(lexer) == ' ' || peek(lexer) == '\n')
+    // NOTE: fuck \r
+    while (peek(lexer) == ' ' || peek(lexer) == '\n' || peek(lexer) == '\r')
         advance(lexer);
 }
 
@@ -390,7 +391,14 @@ struct Token next_token(struct Lexer* lexer)
         };
 
         return (struct Token) {
-            .kind = seq(s, "if") || seq(s, "then") || seq(s, "else")
+            .kind = seq(s, "if")
+                    || seq(s, "then")
+                    || seq(s, "else")
+                    || seq(s, "while")
+                    || seq(s, "do")
+                    || seq(s, "done")
+                    || seq(s, "let")
+                    || seq(s, "in")
                 ? TokenKindKeyword
                 : TokenKindIdent,
             .lexeme = s,
@@ -447,6 +455,8 @@ enum ExpressionKind {
     ExpressionKindDyad,
     ExpressionKindCall,
     ExpressionKindBranch,
+    ExpressionKindWhile,
+    ExpressionKindLet,
 };
 
 typedef struct Expression* Expression;
@@ -474,6 +484,15 @@ struct Expression {
             struct Expression* if_branch;
             struct Expression* else_branch;
         } branch;
+        struct {
+            struct Expression* condition;
+            struct Expression* body;
+        } while_loop;
+        struct {
+            struct String identifier;
+            struct Expression* value;
+            struct Expression* body;
+        } let;
     };
 };
 
@@ -481,11 +500,11 @@ struct Expression {
 // power of an prefix operator
 bool prefix_binding_power(struct String op, int* rbp)
 {
-    if (seq(op, "+") || seq(op, "-")) {
-        *rbp = 13;
+    if (seq(op, "+") || seq(op, "-") || seq(op, "!")) {
+        *rbp = 19;
         return false;
     }
-    if (seq(op, "if")) {
+    if (seq(op, "if") || seq(op, "while") || seq(op, "let")) {
         *rbp = 3;
         return false;
     }
@@ -506,19 +525,34 @@ bool infix_binding_power(struct String op, int* lbp, int* rbp)
         *rbp = 5;
         return false;
     }
-    if (seq(op, "?")) {
-        *lbp = 8;
-        *rbp = 7;
+    if (seq(op, "||")) {
+        *lbp = 7;
+        *rbp = 8;
         return false;
     }
-    if (seq(op, "+") || seq(op, "-")) {
+    if (seq(op, "&&")) {
         *lbp = 9;
         *rbp = 10;
         return false;
     }
-    if (seq(op, "*") || seq(op, "/")) {
+    if (seq(op, "==") || seq(op, "!=")) {
         *lbp = 11;
         *rbp = 12;
+        return false;
+    }
+    if (seq(op, "<") || seq(op, "<=") || seq(op, ">") || seq(op, ">=")) {
+        *lbp = 13;
+        *rbp = 14;
+        return false;
+    }
+    if (seq(op, "+") || seq(op, "-")) {
+        *lbp = 15;
+        *rbp = 16;
+        return false;
+    }
+    if (seq(op, "*") || seq(op, "/") || seq(op, "%")) {
+        *lbp = 17;
+        *rbp = 18;
         return false;
     }
     return true;
@@ -529,11 +563,11 @@ bool infix_binding_power(struct String op, int* lbp, int* rbp)
 bool postfix_binding_power(struct String op, int* lbp)
 {
     if (seq(op, "!")) {
-        *lbp = 15;
+        *lbp = 20;
         return false;
     }
     if (seq(op, "[") || seq(op, "(")) {
-        *lbp = 15;
+        *lbp = 20;
         return false;
     }
     return true;
@@ -586,6 +620,23 @@ void print_expression(struct Expression* expression)
         print_expression(expression->branch.else_branch);
         printf("] ");
         printf("? ");
+        break;
+    case ExpressionKindWhile:
+        printf("[ ");
+        print_expression(expression->while_loop.condition);
+        printf("] ");
+        printf("[ ");
+        print_expression(expression->while_loop.body);
+        printf("] ");
+        printf("while ");
+        break;
+    case ExpressionKindLet:
+        printf("let %.*s = ",
+            (int)expression->let.identifier.len,
+            expression->let.identifier.data);
+        print_expression(expression->let.value);
+        printf("in ");
+        print_expression(expression->let.body);
         break;
     }
 }
@@ -685,6 +736,147 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 lhs = new;
             }
 
+        } else if (seq(t.lexeme, "while")) { // while expression (this is more statement like)
+            int rbp;
+            prefix_binding_power(t.lexeme, &rbp);
+            struct Expression* condition = expr_bp(lexer, rbp);
+            if (condition == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression after the 'while' keyword"
+                    " at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            struct Token t2;
+            if (!seq((t2 = next_token(lexer)).lexeme, "do")) {
+                fprintf(stderr,
+                    "[Parsing Error] expected 'do' to continue 'while'"
+                    " expression beginning at %d:%d instead found '%.*s' at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    (int)t2.lexeme.len,
+                    t2.lexeme.data,
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            lhs = expr_bp(lexer, 0);
+            if (lhs == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression after the 'do' keyword"
+                    " at %d:%d to continue the 'while' expression starting at %d:%d in %s \n",
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            // peek the next token to see if it is done
+            struct Token t3 = next_token(lexer);
+            if (!seq(t3.lexeme, "done")) {
+                fprintf(stderr,
+                    "[Parsing Error] expected matching 'done' at %d:%d after the 'do' keyword"
+                    " at %d:%d to end the 'while' expression starting at %d:%d instead got '%.*s' in %s \n",
+                    t3.range.start.line,
+                    t3.range.start.column,
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.start.line,
+                    t.range.start.column,
+                    (int)t3.lexeme.len,
+                    t3.lexeme.data,
+                    t.range.filename);
+                exit(1);
+            }
+            struct Expression* new = malloc(sizeof(struct Expression));
+            new->kind = ExpressionKindWhile;
+            new->while_loop.condition = condition;
+            new->while_loop.body = lhs;
+            lhs = new;
+        } else if (seq(t.lexeme, "let")) {
+            int rbp;
+            prefix_binding_power(t.lexeme, &rbp);
+            struct Token t2 = next_token(lexer);
+            if (t2.kind != TokenKindIdent) {
+                fprintf(stderr,
+                    "[Parsing Error] expected an identifier "
+                    " to follow 'let' at %d:%d for a let expression"
+                    " instead found '%.*s' at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    (int)t2.lexeme.len,
+                    t2.lexeme.data,
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            struct Token t3 = next_token(lexer);
+            if (!seq(t3.lexeme, "=")) {
+                fprintf(stderr,
+                    "[Parsing Error] expected a definition with '=' "
+                    " to follow 'let %.*s' at %d:%d for a let expression"
+                    " instead found '%.*s' at %d:%d in %s \n",
+                    (int)t2.lexeme.len,
+                    t2.lexeme.data,
+                    t.range.start.line,
+                    t.range.start.column,
+                    (int)t3.lexeme.len,
+                    t3.lexeme.data,
+                    t2.range.start.line,
+                    t2.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            struct Expression* rhs = expr_bp(lexer, rbp);
+            if (rhs == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression on the right hand side of 'let' binding"
+                    " 'let %.*s = ' at %d:%d in %s",
+                    (int)t2.lexeme.len,
+                    t2.lexeme.data,
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+
+            // TODO: i just realised i have information to literally put the piece of broken code
+            struct Token t4 = next_token(lexer);
+            if (!seq(t4.lexeme, ";")) {
+                fprintf(stderr,
+                    "[Parsing Error] expected ';' to follow the 'let' binding at %d:%d instead found '%.*s' at %d:%d in %s",
+                    t.range.start.line,
+                    t.range.start.column,
+                    (int)t4.lexeme.len,
+                    t4.lexeme.data,
+                    t4.range.start.line,
+                    t4.range.start.column,
+                    t.range.filename);
+                exit(1);
+            }
+            struct Expression* body = expr_bp(lexer, rbp);
+            if (body == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression on the right hand side of 'let' expression"
+                    "after %d:%d in %s. \n\nA let binding must be of the form let <ident> = <expr1> ; <expr2>"
+                    " where the value of the bound identifier is used in the body of the second expression",
+                    t4.range.end.line,
+                    t4.range.end.column,
+                    t4.range.filename);
+                exit(1);
+            }
+            struct Expression* new = malloc(sizeof(struct Expression));
+            new->kind = ExpressionKindLet;
+            new->let.identifier = t2.lexeme;
+            new->let.body = body;
+            new->let.value = rhs;
+
+            lhs = new;
         } else {
             fprintf(stderr,
                 "[Parsing Error] an expression was expected at %d:%d in %s and the keyword"
@@ -977,9 +1169,22 @@ struct Expression* expr(const char* input)
 // end of expression parsing code
 int main()
 {
-    const char* input = "1 = 2 = if eq(x,y) then (x=x+1;print(x);true) else false";
+    DEFINE_ARRAYLIST(char);
+    FILE* file = fopen("file.txt", "r"); // NOTE: just ignore the error for now
 
-    puts("Lexical Analysis:");
+    int c;
+    struct ArrayList(char) s = empty_list(char);
+    while ((c = fgetc(file)) != EOF) {
+        append(char, s, c);
+    }
+    append(char, s, '\0');
+    fclose(file);
+
+    const char* input = s.data;
+    puts("Source:\n```");
+    puts(input);
+
+    puts("```\n\nLexical Analysis:");
     struct Lexer* lexer = make_lexer(input);
     struct Token t;
     while ((t = next_token(lexer)).kind != TokenKindEof) {
