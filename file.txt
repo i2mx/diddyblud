@@ -1,8 +1,13 @@
-let a = ( let b = 1; b );
-print(a)
+let add = (x => y => x + y);
+let succ = add(1);
 
-fun add(a,b) = a + b    
+while true do
+    if x == 10 then (
+        let x = 2 * x;    
+        break
+    );
+    x = x + 1
+done
 
-fun main() = (
 
-)
+

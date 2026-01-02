@@ -398,7 +398,7 @@ struct Token next_token(struct Lexer* lexer)
                     || seq(s, "do")
                     || seq(s, "done")
                     || seq(s, "let")
-                    || seq(s, "in")
+                    || seq(s, "break")
                 ? TokenKindKeyword
                 : TokenKindIdent,
             .lexeme = s,
@@ -457,6 +457,8 @@ enum ExpressionKind {
     ExpressionKindBranch,
     ExpressionKindWhile,
     ExpressionKindLet,
+    ExpressionKindLambda,
+    ExpressionKindBreak,
 };
 
 typedef struct Expression* Expression;
@@ -493,6 +495,12 @@ struct Expression {
             struct Expression* value;
             struct Expression* body;
         } let;
+        struct {
+            struct String identifier;
+            struct Expression* body;
+        } lambda;
+        struct {
+        } break_expr;
     };
 };
 
@@ -504,7 +512,7 @@ bool prefix_binding_power(struct String op, int* rbp)
         *rbp = 19;
         return false;
     }
-    if (seq(op, "if") || seq(op, "while") || seq(op, "let")) {
+    if (seq(op, "if") || seq(op, "while") || seq(op, "let") || seq(op, "lambda")) {
         *rbp = 3;
         return false;
     }
@@ -638,6 +646,13 @@ void print_expression(struct Expression* expression)
         printf("in ");
         print_expression(expression->let.body);
         break;
+    case ExpressionKindLambda:
+        printf("[ %.*s => ",
+            (int)expression->lambda.identifier.len,
+            expression->lambda.identifier.data);
+        print_expression(expression->lambda.body);
+        printf("] ");
+        break;
     }
 }
 
@@ -657,13 +672,45 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
     struct Token t = next_token(lexer);
     // TODO: make sure we exhaustively handle this it's very important
 
-    if (t.kind == TokenKindIdent || t.kind == TokenKindNat) {
-        // atoms
+    if (t.kind == TokenKindIdent) {
+        // identifier
+        struct Token t2 = peek_token(lexer);
+
+        if (seq(t2.lexeme, "=>")) {
+            next_token(lexer);
+            int rbp;
+            prefix_binding_power(make_string("lambda"), &rbp);
+            struct Expression* rhs = expr_bp(lexer, rbp);
+            if (rhs == NULL) {
+                fprintf(stderr,
+                    "[Parsing Error] missing expression following the lambda '%.*s =>' "
+                    " after %d:%d in %s \n",
+                    (int)t.lexeme.len,
+                    t.lexeme.data,
+                    t2.range.end.line,
+                    t2.range.end.column,
+                    t2.range.filename);
+                exit(1);
+            }
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindLambda;
+            lhs->lambda.identifier = t.lexeme;
+            lhs->lambda.body = rhs;
+        } else {
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindAtom;
+            lhs->atom = t.lexeme;
+        }
+    } else if (t.kind == TokenKindNat) {
+        // natural number
         lhs = malloc(sizeof(struct Expression));
         lhs->kind = ExpressionKindAtom;
         lhs->atom = t.lexeme;
     } else if (t.kind == TokenKindKeyword) { // hmmmm
-        if (seq(t.lexeme, "if")) { // if expression
+        if (seq(t.lexeme, "break")) {
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindBreak;
+        } else if (seq(t.lexeme, "if")) { // if expression
             // TODO: decide the precedence of this + errors
             int rbp;
             prefix_binding_power(t.lexeme, &rbp);
