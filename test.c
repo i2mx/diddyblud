@@ -638,6 +638,9 @@ void print_expression(struct Expression* expression)
         printf("] ");
         printf("while ");
         break;
+    case ExpressionKindBreak:
+        printf("break ");
+        break;
     case ExpressionKindLet:
         printf("let %.*s = ",
             (int)expression->let.identifier.len,
@@ -660,7 +663,7 @@ void print_expression(struct Expression* expression)
 // a stack of error messages
 
 //  a null pointer is used to indicate an empty expression
-struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
+struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableBreak)
 {
     // NOTE: the rule for expressions is to allocate them and then
     // never discard them, we need to keep them around the whole time
@@ -680,7 +683,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             next_token(lexer);
             int rbp;
             prefix_binding_power(make_string("lambda"), &rbp);
-            struct Expression* rhs = expr_bp(lexer, rbp);
+            struct Expression* rhs = expr_bp(lexer, rbp, false);
             if (rhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression following the lambda '%.*s =>' "
@@ -708,14 +711,25 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         lhs->atom = t.lexeme;
     } else if (t.kind == TokenKindKeyword) { // hmmmm
         if (seq(t.lexeme, "break")) {
+            if (!enableBreak) {
+                fprintf(stderr,
+                    "[Parsing Error] illegal break expression found"
+                    " at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                return NULL;
+            }
             lhs = malloc(sizeof(struct Expression));
             lhs->kind = ExpressionKindBreak;
+            // break out early
+            return lhs;
         } else if (seq(t.lexeme, "if")) { // if expression
             // TODO: decide the precedence of this + errors
             int rbp;
             prefix_binding_power(t.lexeme, &rbp);
 
-            struct Expression* condition = expr_bp(lexer, rbp);
+            struct Expression* condition = expr_bp(lexer, rbp, false);
             if (condition == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression after the 'if' keyword "
@@ -739,7 +753,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     t.range.filename);
                 exit(1);
             }
-            lhs = expr_bp(lexer, rbp);
+            lhs = expr_bp(lexer, rbp, enableBreak);
             if (lhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression after the 'then' keyword"
@@ -762,7 +776,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 lhs = new;
             } else {
                 next_token(lexer);
-                struct Expression* rhs = expr_bp(lexer, rbp);
+                struct Expression* rhs = expr_bp(lexer, rbp, enableBreak);
                 if (rhs == NULL) {
                     fprintf(stderr,
                         "[Parsing Error] missing expression after the 'else' keyword"
@@ -786,7 +800,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         } else if (seq(t.lexeme, "while")) { // while expression (this is more statement like)
             int rbp;
             prefix_binding_power(t.lexeme, &rbp);
-            struct Expression* condition = expr_bp(lexer, rbp);
+            struct Expression* condition = expr_bp(lexer, rbp, false);
             if (condition == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression after the 'while' keyword"
@@ -810,7 +824,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     t.range.filename);
                 exit(1);
             }
-            lhs = expr_bp(lexer, 0);
+            // ENABLE BREAKS
+            lhs = expr_bp(lexer, 0, true);
             if (lhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression after the 'do' keyword"
@@ -879,7 +894,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     t.range.filename);
                 exit(1);
             }
-            struct Expression* rhs = expr_bp(lexer, rbp);
+            struct Expression* rhs = expr_bp(lexer, rbp, false);
             if (rhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression on the right hand side of 'let' binding"
@@ -906,7 +921,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                     t.range.filename);
                 exit(1);
             }
-            struct Expression* body = expr_bp(lexer, rbp);
+            struct Expression* body = expr_bp(lexer, rbp, enableBreak);
             if (body == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression on the right hand side of 'let' expression"
@@ -938,7 +953,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
     } else if (t.kind == TokenKindLParen) {
         // parenthesised expressions
         struct Token t2;
-        lhs = expr_bp(lexer, 0);
+        lhs = expr_bp(lexer, 0, enableBreak);
         if (lhs == NULL) {
             fprintf(stderr,
                 "[Parsing Error] missing expression after the open parenthesis '('"
@@ -975,7 +990,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                 t.range.filename);
             exit(1);
         }
-        struct Expression* rhs = expr_bp(lexer, rbp);
+        struct Expression* rhs = expr_bp(lexer, rbp, false);
         if (rhs == NULL) {
             fprintf(stderr,
                 "[Parsing Error] missing expression on the right hand side"
@@ -1012,7 +1027,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
 
             struct Token t2;
             next_token(lexer);
-            struct Expression* rhs = expr_bp(lexer, 0);
+            struct Expression* rhs = expr_bp(lexer, 0, false);
             // rbp = 0
 
             if (rhs == NULL) {
@@ -1076,7 +1091,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
             }
 
             // now assume that the argument list must have a bunch of expressions
-            struct Expression* ilhs = expr_bp(lexer, 0);
+            struct Expression* ilhs = expr_bp(lexer, 0, false);
             append(Expression, el, ilhs);
 
             if (ilhs == NULL) {
@@ -1107,7 +1122,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
                         t.range.filename);
                     exit(1);
                 }
-                ilhs = expr_bp(lexer, 0);
+                ilhs = expr_bp(lexer, 0, false);
                 if (ilhs == NULL) {
                     fprintf(stderr,
                         "[Parsing Error] missing expression on the right hand side"
@@ -1180,8 +1195,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
         next_token(lexer);
 
         // once we have taken an operator we need an expression on the right hand side
-
-        struct Expression* rhs = expr_bp(lexer, rbp);
+        struct Expression* rhs = expr_bp(lexer, rbp, seq(t.lexeme, ";") ? enableBreak : false);
         if (rhs == NULL) {
             fprintf(stderr,
                 "[Parsing Error] missing expression on the right hand side"
@@ -1211,7 +1225,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp)
 struct Expression* expr(const char* input)
 {
     struct Lexer* lexer = make_lexer(input);
-    return expr_bp(lexer, 0);
+    return expr_bp(lexer, 0, false);
 }
 // end of expression parsing code
 int main()
