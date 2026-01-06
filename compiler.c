@@ -1531,7 +1531,7 @@ Type* instantiate(struct TypeScheme* s)
 // finds an identifier in name in the environment and then instantiates its type scheme
 Type* lookup_env(struct TypeEnv* env, struct String name)
 {
-    for (size_t i = 0; i < env->bindings.len; ++i) {
+    for (size_t i = env->bindings.len - 1; i >= 0; --i) {
         TypeBinding b = env->bindings.data[i];
         if (b.name.len == name.len
             && strncmp(
