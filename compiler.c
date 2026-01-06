@@ -1,3 +1,5 @@
+// TODO: YOU NEED NEED NEED NEED TO REFACTOR THIS
+
 #include <assert.h>
 #include <ctype.h>
 #include <math.h>
@@ -64,7 +66,8 @@ static inline struct String make_string(const char* s)
 // checks to see if a struct String is the same as a c-style string
 static inline bool seq(struct String s1, const char* s2)
 {
-    return strncmp(s1.data, s2, s1.len) == 0 && s1.len == strlen(s2);
+    return strncmp(s1.data, s2, s1.len) == 0
+        && s1.len == strlen(s2);
 }
 
 // a custom type to describe a current in a source code
@@ -94,8 +97,8 @@ enum TokenKind {
     TokenKindIdent, // Examples: hello_world1, a_2
 
     TokenKindKeyword, // Examples: let, val, if, then, else, while, do, end
-                      //
-                      // try to have as few of these are possible
+    //
+    // try to have as few of these are possible
 
     TokenKindOperator, // +, - |> <? =>
 
@@ -173,7 +176,7 @@ void print_token(const struct Token token)
         break;
     }
 
-    // I asked chatgpt to write this function and it's a little embarassing.
+    // I asked chatgpt to write this function and it's a little embarrassing.
     printf("[Token] Kind: %-12s | Lexeme: %-8.*s | Line: %d, Column: %d\n",
         kind_name, (int)token.lexeme.len, token.lexeme.data,
         token.range.start.line, token.range.start.column);
@@ -193,7 +196,7 @@ struct Lexer {
 struct Lexer* make_lexer(const char* input)
 {
     // NOTE: we only ever make one lexer and it's very cheap
-    // so this should never leak memoery
+    // so this should never leak memory
 
     // NOTE: this doesn't need to malloc at all?
 
@@ -237,7 +240,8 @@ void advance(struct Lexer* lexer)
     if (lexer->input.data[lexer->pos.offset] == '\n') {
         ++lexer->pos.line;
         lexer->pos.column = 1;
-    } else {
+    }
+    else {
         ++lexer->pos.column;
     }
 
@@ -281,8 +285,8 @@ static inline bool isspecial(char c)
         || c == '~');
 }
 
-// determines if a character is a "deliminator"
-static inline bool isdelim(const char c)
+// determines if a character is a "delimiter"
+static inline bool is_delim(const char c)
 {
     return (
         c == '('
@@ -295,7 +299,7 @@ static inline bool isdelim(const char c)
         || c == ',');
 }
 
-// returns the exact deliminater type of a character
+// returns the exact delimiter type of a character
 enum TokenKind delim_kind(char c)
 {
     switch (c) {
@@ -328,13 +332,20 @@ struct Token next_token(struct Lexer* lexer)
 
     char c = peek(lexer);
 
+    if (c == '#') {
+        while (peek(lexer) != '\n' && peek(lexer) != '\0') {
+            advance(lexer);
+        }
+        return next_token(lexer);
+    }
+
     if (c == '\0') {
         return (struct Token) {
             .kind = TokenKindEof,
-            .lexeme = { (*lexer).input.data + start.offset, 1 },
-            .range = {
-                .start = start,
-                .end = start,
+                .lexeme = { (*lexer).input.data + start.offset, 1 },
+                .range = {
+                    .start = start,
+                    .end = start,
             }
         };
     }
@@ -343,22 +354,22 @@ struct Token next_token(struct Lexer* lexer)
         advance(lexer);
         return (struct Token) {
             .kind = TokenKindSemicolon,
-            .lexeme = { (*lexer).input.data + start.offset, 1 },
-            .range = {
-                .start = start,
-                .end = start,
+                .lexeme = { (*lexer).input.data + start.offset, 1 },
+                .range = {
+                    .start = start,
+                    .end = start,
             }
         };
     }
 
-    if (isdelim(c)) {
+    if (is_delim(c)) {
         advance(lexer);
         return (struct Token) {
             .kind = delim_kind(c),
-            .lexeme = { (*lexer).input.data + start.offset, 1 },
-            .range = {
-                .start = start,
-                .end = (*lexer).pos,
+                .lexeme = { (*lexer).input.data + start.offset, 1 },
+                .range = {
+                    .start = start,
+                    .end = (*lexer).pos,
             }
         };
     }
@@ -370,9 +381,9 @@ struct Token next_token(struct Lexer* lexer)
 
         return (struct Token) {
             .kind = TokenKindNat,
-            .lexeme = {
-                .data = (*lexer).input.data + start.offset,
-                .len = (*lexer).pos.offset - start.offset,
+                .lexeme = {
+                    .data = (*lexer).input.data + start.offset,
+                    .len = (*lexer).pos.offset - start.offset,
             },
             .range = {
                 .start = start,
@@ -392,19 +403,23 @@ struct Token next_token(struct Lexer* lexer)
 
         return (struct Token) {
             .kind = seq(s, "if")
-                    || seq(s, "then")
-                    || seq(s, "else")
-                    || seq(s, "while")
-                    || seq(s, "do")
-                    || seq(s, "done")
-                    || seq(s, "let")
-                    || seq(s, "break")
+                || seq(s, "then")
+                || seq(s, "else")
+                || seq(s, "while")
+                || seq(s, "do")
+                || seq(s, "done")
+                || seq(s, "let")
+                || seq(s, "break")
+                || seq(s, "continue")
+                || seq(s, "false")
+                || seq(s, "true")
+                || seq(s, "void")
                 ? TokenKindKeyword
                 : TokenKindIdent,
-            .lexeme = s,
-            .range = {
-                .start = start,
-                .end = (*lexer).pos,
+                .lexeme = s,
+                .range = {
+                    .start = start,
+                    .end = (*lexer).pos,
             }
         };
     }
@@ -416,9 +431,9 @@ struct Token next_token(struct Lexer* lexer)
         }
         return (struct Token) {
             .kind = TokenKindOperator,
-            .lexeme = {
-                .data = lexer->input.data + start.offset,
-                .len = lexer->pos.offset - start.offset,
+                .lexeme = {
+                    .data = lexer->input.data + start.offset,
+                    .len = lexer->pos.offset - start.offset,
             },
             .range = {
                 .start = start,
@@ -459,6 +474,10 @@ enum ExpressionKind {
     ExpressionKindLet,
     ExpressionKindLambda,
     ExpressionKindBreak,
+    ExpressionKindContinue,
+    ExpressionKindTrue,
+    ExpressionKindFalse,
+    ExpressionKindVoid,
 };
 
 typedef struct Expression* Expression;
@@ -499,8 +518,6 @@ struct Expression {
             struct String identifier;
             struct Expression* body;
         } lambda;
-        struct {
-        } break_expr;
     };
 };
 
@@ -512,7 +529,8 @@ bool prefix_binding_power(struct String op, int* rbp)
         *rbp = 19;
         return false;
     }
-    if (seq(op, "if") || seq(op, "while") || seq(op, "let") || seq(op, "lambda")) {
+    if (seq(op, "if") || seq(op, "while")
+        || seq(op, "let") || seq(op, "lambda")) {
         *rbp = 3;
         return false;
     }
@@ -602,7 +620,8 @@ void print_expression(struct Expression* expression)
             print_expression(expression->dyad.left);
             printf("; ");
             print_expression(expression->dyad.right);
-        } else {
+        }
+        else {
             print_expression(expression->dyad.left);
             print_expression(expression->dyad.right);
             printf("[2]%.*s ", (int)expression->dyad.operation.len,
@@ -641,13 +660,26 @@ void print_expression(struct Expression* expression)
     case ExpressionKindBreak:
         printf("break ");
         break;
+    case ExpressionKindContinue:
+        printf("continue ");
+        break;
+    case ExpressionKindTrue:
+        printf("true ");
+        break;
+    case ExpressionKindFalse:
+        printf("false ");
+        break;
+    case ExpressionKindVoid:
+        printf("void ");
+        break;
     case ExpressionKindLet:
-        printf("let %.*s = ",
+        printf("( let %.*s = ",
             (int)expression->let.identifier.len,
             expression->let.identifier.data);
         print_expression(expression->let.value);
         printf("in ");
         print_expression(expression->let.body);
+        printf(") ");
         break;
     case ExpressionKindLambda:
         printf("[ %.*s => ",
@@ -663,7 +695,7 @@ void print_expression(struct Expression* expression)
 // a stack of error messages
 
 //  a null pointer is used to indicate an empty expression
-struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableBreak)
+struct Expression* expr_bp(struct Lexer* lexer, unsigned int minBp, bool enableBreak)
 {
     // NOTE: the rule for expressions is to allocate them and then
     // never discard them, we need to keep them around the whole time
@@ -699,17 +731,20 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             lhs->kind = ExpressionKindLambda;
             lhs->lambda.identifier = t.lexeme;
             lhs->lambda.body = rhs;
-        } else {
+        }
+        else {
             lhs = malloc(sizeof(struct Expression));
             lhs->kind = ExpressionKindAtom;
             lhs->atom = t.lexeme;
         }
-    } else if (t.kind == TokenKindNat) {
+    }
+    else if (t.kind == TokenKindNat) {
         // natural number
         lhs = malloc(sizeof(struct Expression));
         lhs->kind = ExpressionKindAtom;
         lhs->atom = t.lexeme;
-    } else if (t.kind == TokenKindKeyword) { // hmmmm
+    }
+    else if (t.kind == TokenKindKeyword) { // hmmm
         if (seq(t.lexeme, "break")) {
             if (!enableBreak) {
                 fprintf(stderr,
@@ -724,7 +759,35 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             lhs->kind = ExpressionKindBreak;
             // break out early
             return lhs;
-        } else if (seq(t.lexeme, "if")) { // if expression
+        }
+        else if (seq(t.lexeme, "continue")) {
+            if (!enableBreak) {
+                fprintf(stderr,
+                    "[Parsing Error] illegal continue expression found"
+                    " at %d:%d in %s \n",
+                    t.range.start.line,
+                    t.range.start.column,
+                    t.range.filename);
+                return NULL;
+            }
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindContinue;
+            return lhs;
+        }
+        else if (seq(t.lexeme, "true")) {
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindTrue;
+        }
+        else if (seq(t.lexeme, "false")) {
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindFalse;
+        }
+        else if (seq(t.lexeme, "void")) {
+            lhs = malloc(sizeof(struct Expression));
+            lhs->kind = ExpressionKindVoid;
+            return lhs;
+        }
+        else if (seq(t.lexeme, "if")) { // if expression
             // TODO: decide the precedence of this + errors
             int rbp;
             prefix_binding_power(t.lexeme, &rbp);
@@ -774,7 +837,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                 new->branch.if_branch = lhs;
                 new->branch.else_branch = NULL;
                 lhs = new;
-            } else {
+            }
+            else {
                 next_token(lexer);
                 struct Expression* rhs = expr_bp(lexer, rbp, enableBreak);
                 if (rhs == NULL) {
@@ -797,7 +861,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                 lhs = new;
             }
 
-        } else if (seq(t.lexeme, "while")) { // while expression (this is more statement like)
+        }
+        else if (seq(t.lexeme, "while")) { // while expression (this is more statement like)
             int rbp;
             prefix_binding_power(t.lexeme, &rbp);
             struct Expression* condition = expr_bp(lexer, rbp, false);
@@ -859,7 +924,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             new->while_loop.condition = condition;
             new->while_loop.body = lhs;
             lhs = new;
-        } else if (seq(t.lexeme, "let")) {
+        }
+        else if (seq(t.lexeme, "let")) {
             int rbp;
             prefix_binding_power(t.lexeme, &rbp);
             struct Token t2 = next_token(lexer);
@@ -921,7 +987,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                     t.range.filename);
                 exit(1);
             }
-            struct Expression* body = expr_bp(lexer, rbp, enableBreak);
+            // in order to correctly parse let x = 1 in x ; 1 as let x = 1 ; (x ; 1)
+            struct Expression* body = expr_bp(lexer, 0, enableBreak);
             if (body == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression on the right hand side of 'let' expression"
@@ -939,7 +1006,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             new->let.value = rhs;
 
             lhs = new;
-        } else {
+        }
+        else {
             fprintf(stderr,
                 "[Parsing Error] an expression was expected at %d:%d in %s and the keyword"
                 " '%.*s' cannot be used to begin an expression. \n",
@@ -950,7 +1018,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                 t.lexeme.data);
             return NULL;
         }
-    } else if (t.kind == TokenKindLParen) {
+    }
+    else if (t.kind == TokenKindLParen) {
         // parenthesised expressions
         struct Token t2;
         lhs = expr_bp(lexer, 0, enableBreak);
@@ -977,7 +1046,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                 t.range.filename);
             exit(1);
         }
-    } else if (t.kind == TokenKindOperator) {
+    }
+    else if (t.kind == TokenKindOperator) {
         // prefix operators
         int rbp;
         if (prefix_binding_power(t.lexeme, &rbp)) {
@@ -1006,7 +1076,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
         lhs->kind = ExpressionKindMonad;
         lhs->monad.expr = rhs;
         lhs->monad.operation = t.lexeme;
-    } else {
+    }
+    else {
         // failure
         return NULL;
     }
@@ -1021,7 +1092,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             // array access
             // TODO: currently useless because
             postfix_binding_power(t.lexeme, &lbp);
-            if (lbp < minbp) {
+            if (lbp < minBp) {
                 break;
             }
 
@@ -1063,18 +1134,19 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             lhs = new;
             continue;
 
-        } else if (t.kind == TokenKindLParen) {
+        }
+        else if (t.kind == TokenKindLParen) {
             // TODO: ERROR MESSAGES PLEASE
 
             // NOTE: disallow doing f(a, b, c,) because surely
             // function interfaces rarely change
 
-            // TODO: this vode is repeated for all branches
+            // TODO: this code is repeated for all branches
             // but the error handling is different in these cases?? maybe
-            // ahhhh this code is a disaster
+            // ahh this code is a disaster
 
             postfix_binding_power(t.lexeme, &lbp);
-            if (lbp < minbp) {
+            if (lbp < minBp) {
                 break;
             }
 
@@ -1084,17 +1156,17 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
 
             struct ArrayList(Expression) el = empty_list(Expression);
 
-            // check if the argumetn list is completely empty
+            // check if the argument list is completely empty
             if (peek_token(lexer).kind == TokenKindRParen) {
                 next_token(lexer);
                 goto make_call_expression;
             }
 
             // now assume that the argument list must have a bunch of expressions
-            struct Expression* ilhs = expr_bp(lexer, 0, false);
-            append(Expression, el, ilhs);
+            struct Expression* iLhs = expr_bp(lexer, 0, false);
+            append(Expression, el, iLhs);
 
-            if (ilhs == NULL) {
+            if (iLhs == NULL) {
                 fprintf(stderr,
                     "[Parsing Error] missing expression on the right hand side"
                     " of open parenthesis '(' inside the argument list beginning at %d:%d in %s \n",
@@ -1122,8 +1194,8 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                         t.range.filename);
                     exit(1);
                 }
-                ilhs = expr_bp(lexer, 0, false);
-                if (ilhs == NULL) {
+                iLhs = expr_bp(lexer, 0, false);
+                if (iLhs == NULL) {
                     fprintf(stderr,
                         "[Parsing Error] missing expression on the right hand side"
                         " of comma ',' after %d:%d inside the argument list beginning at %d:%d in %s \n",
@@ -1134,7 +1206,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
                         t.range.filename);
                     exit(1);
                 }
-                append(Expression, el, ilhs);
+                append(Expression, el, iLhs);
             }
 
         make_call_expression:
@@ -1142,7 +1214,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             struct Expression* new = malloc(sizeof(struct Expression));
 
             // horrible hacky code
-            // TODO: ahhhhhh
+            // TODO: ahh
 
             new->kind = ExpressionKindCall;
             new->call.function = lhs;
@@ -1158,12 +1230,12 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
 
         // first extend all the postfix operators possible then evaluate infixes
         // should try to design the language so that there is no cooked shi
-        // when using postfix operators, i dont really like this but
+        // when using postfix operators, i don't really like this but
         // it'll have to do because chaining is quite nice i guess
 
         if (postfix_binding_power(t.lexeme, &lbp) == 0) {
             // postfix operators
-            if (lbp < minbp)
+            if (lbp < minBp)
                 break;
             next_token(lexer);
 
@@ -1189,7 +1261,7 @@ struct Expression* expr_bp(struct Lexer* lexer, unsigned int minbp, bool enableB
             exit(1);
         }
 
-        if (lbp < minbp)
+        if (lbp < minBp)
             break;
 
         next_token(lexer);
@@ -1228,6 +1300,479 @@ struct Expression* expr(const char* input)
     return expr_bp(lexer, 0, false);
 }
 // end of expression parsing code
+
+// TYPE CHECKING
+enum TypeKind {
+    TYPE_INT,
+    TYPE_BOOL,
+    TYPE_VOID,
+    TYPE_VAR, // represents unknown type that we can work out later
+    TYPE_FUN,
+};
+
+typedef struct Type Type;
+struct Type {
+    enum TypeKind kind;
+    int id;
+    struct Type* parent;
+    union {
+        struct {
+            Type* from;
+            Type* to;
+        } fun;
+    };
+};
+
+static int next_type_id = 0;
+Type* new_type(enum TypeKind kind)
+{
+    Type* t = malloc(sizeof(Type));
+    t->kind = kind;
+    t->id = next_type_id++;
+    t->parent = t;
+    return t;
+}
+
+Type* type_var(void) { return new_type(TYPE_VAR); }
+Type* type_int(void)
+{
+    static Type t = { TYPE_INT, -1, NULL };
+    if (!t.parent)
+        t.parent = &t;
+    return &t;
+}
+Type* type_bool(void)
+{
+    static Type t = { TYPE_BOOL, -2, NULL };
+    if (!t.parent)
+        t.parent = &t;
+    return &t;
+}
+Type* type_void(void)
+{
+    static Type t = { TYPE_VOID, -3, NULL };
+    if (!t.parent)
+        t.parent = &t;
+    return &t;
+}
+
+Type* type_fun(Type* a, Type* b)
+{
+    Type* t = new_type(TYPE_FUN);
+    t->fun.from = a;
+    t->fun.to = b;
+    return t;
+}
+
+// find the representative type of the union-find set
+Type* find(Type* t)
+{
+    return t->parent == t
+        ? t
+        : (t->parent = find(t->parent));
+}
+
+// checks if type variable v occurs in type t in order
+// to prevent circular / infinite types
+bool occurs(Type* v, Type* t)
+{
+    t = find(t);
+    if (t == v)
+        return true;
+    if (t->kind == TYPE_FUN)
+        return occurs(v, t->fun.from) || occurs(v, t->fun.to);
+    return false;
+}
+
+// attempt to unify two types, returning true on success
+// that is we create the constraint that a == b
+bool unify(Type* a, Type* b)
+{
+    // printf("Unifying types %d and %d\n", a->id, b->id);
+    a = find(a);
+    b = find(b);
+
+    if (a == b)
+        return true;
+
+    if (a->kind == TYPE_VAR) {
+        if (occurs(a, b))
+            return false;
+        a->parent = find(b);
+        return true;
+    }
+
+    if (b->kind == TYPE_VAR) {
+        if (occurs(b, a))
+            return false;
+        b->parent = find(a);
+        return true;
+    }
+
+    if (a->kind != b->kind)
+        return false;
+
+    if (a->kind == TYPE_FUN) {
+        return unify(a->fun.from, b->fun.from)
+            && unify(a->fun.to, b->fun.to);
+    }
+
+    return true;
+}
+
+// represents a generalized polymorphic type such as forall a. a -> a
+DEFINE_ARRAYLIST(int);
+struct TypeScheme {
+    Type* type;
+    struct ArrayList(int) vars; // quantified variable ids
+};
+
+// assigns a type scheme to a variable name for example id : forall a. a -> a
+// and x : int
+struct TypeBinding {
+    struct String name;
+    struct TypeScheme scheme;
+};
+typedef struct TypeBinding TypeBinding;
+DEFINE_ARRAYLIST(TypeBinding);
+
+// a type environment simply maps variable names to type schemes, it is a collection of
+// type bindings
+struct TypeEnv {
+    struct ArrayList(TypeBinding) bindings;
+};
+
+// writes into seen all the free type variables in type t, that is those not bound
+// by a type scheme
+void collect_free(Type* t, bool* seen)
+{
+    t = find(t);
+    if (t->kind == TYPE_VAR) {
+        seen[t->id] = true;
+    }
+    else if (t->kind == TYPE_FUN) {
+        collect_free(t->fun.from, seen);
+        collect_free(t->fun.to, seen);
+    }
+}
+// does the same thing as collect except that it unwrites from seen in order to remove
+// type variables that are bound in the environment.
+void uncollect_free(Type* t, bool* seen)
+{
+    t = find(t);
+    if (t->kind == TYPE_VAR) {
+        seen[t->id] = false;
+    }
+    else if (t->kind == TYPE_FUN) {
+        uncollect_free(t->fun.from, seen);
+        uncollect_free(t->fun.to, seen);
+    }
+}
+
+// the point is that in a let binding the type scheme assigned to (for example)
+// id in `let id = x => x in ...` is generalized to forall a. a -> a or literally
+// TypeScheme { type: a -> a, vars: [a] } where a is a type variable.
+// NOTE: this is very tricky to get right
+struct TypeScheme generalize(Type* t, struct TypeEnv* env)
+{
+    // we quantify with all the free type variables in t 
+    // that are not in the environment
+    bool* seen = calloc(next_type_id, sizeof(bool));
+    collect_free(t, seen);
+
+    struct ArrayList(int) vars = empty_list(int);
+    for (int i = 0; i < next_type_id; i++)
+        if (seen[i])
+            append(int, vars, i);
+
+    free(seen);
+    return (struct TypeScheme) { t, vars };
+}
+
+Type* _clone(Type* t, Type** map, bool* is_qualified)
+{
+    t = find(t);
+    if (t->kind == TYPE_VAR && !is_qualified[t->id])
+        // we skip instantiating a type variable only if it's a variable and qualified
+        return t;
+
+    if (t->kind == TYPE_VAR) {
+        if (map[t->id] == NULL)
+            map[t->id] = type_var();
+        return map[t->id];
+    }
+    if (t->kind == TYPE_FUN)
+        return type_fun(
+            _clone(t->fun.from, map, is_qualified),
+            _clone(t->fun.to, map, is_qualified));
+    return t;
+}
+
+// replaces quantified type variables in s with 'fresh' type variables meaning that
+// s is sort of a template and here we use the template and create a new instance of it
+Type* instantiate(struct TypeScheme* s)
+{
+    Type** map = calloc(next_type_id, sizeof(Type*));
+    bool* is_qualified = calloc(next_type_id, sizeof(bool));
+
+    // if it's not qualified there is no need in re-instantiating it
+    for (size_t i = 0; i < s->vars.len; i++) {
+        is_qualified[s->vars.data[i]] = true;
+    }
+    // this is needed because in a0 -> a0 we need to make sure both a0s get instantiated
+    // as the same type variable.
+
+    Type* result = _clone(s->type, map, is_qualified);
+    free(map);
+    free(is_qualified);
+    return result;
+}
+
+// finds an identifier in name in the environment and then instantiates its type scheme
+Type* lookup_env(struct TypeEnv* env, struct String name)
+{
+    for (size_t i = 0; i < env->bindings.len; ++i) {
+        TypeBinding b = env->bindings.data[i];
+        if (b.name.len == name.len
+            && strncmp(
+                b.name.data,
+                name.data,
+                name.len)
+            == 0) {
+            return instantiate(&b.scheme);
+        }
+    }
+    fprintf(stderr, "[Type Error] unbound variable '%.*s'\n",
+        (int)name.len, name.data);
+    exit(1);
+}
+
+struct TypeEnv* clone_env(struct TypeEnv* env)
+{
+    struct TypeEnv* new_env = malloc(sizeof(struct TypeEnv));
+    new_env->bindings = empty_list(TypeBinding);
+    for (size_t i = 0; i < env->bindings.len; i++) {
+        append(TypeBinding, new_env->bindings, env->bindings.data[i]);
+    }
+    return new_env;
+}
+
+void print_type(Type* t)
+{
+    t = find(t);
+    switch (t->kind) {
+    case TYPE_INT:
+        printf("Int");
+        break;
+    case TYPE_BOOL:
+        printf("Bool");
+        break;
+    case TYPE_VOID:
+        printf("Void");
+        break;
+    case TYPE_VAR:
+        printf("t%d", t->id);
+        // print the parent
+        // printf("[-> t%d]", find(t)->id);
+        break;
+    case TYPE_FUN:
+        printf("(");
+        print_type(t->fun.from);
+        printf(" -> ");
+        print_type(t->fun.to);
+        printf(")");
+        break;
+    }
+}
+
+// pretty print env
+void print_env(struct TypeEnv* env)
+{
+    puts("---\nType Environment:");
+    for (size_t i = 0; i < env->bindings.len; i++) {
+        TypeBinding b = env->bindings.data[i];
+        printf("%.*s : ", (int)b.name.len, b.name.data);
+        if (b.scheme.vars.len > 0) {
+            printf("forall");
+            for (size_t j = 0; j < b.scheme.vars.len; j++) {
+                printf(" t%d", b.scheme.vars.data[j]);
+            }
+            printf(". ");
+        }
+        print_type(b.scheme.type);
+        printf("\n");
+    }
+    puts("---\n");
+}
+
+
+// HM-type inference algorithm
+Type* infer(struct Expression* e, struct TypeEnv* env)
+{
+    print_env(env);
+    if (e == NULL) {
+        printf("NULL EXPR\n");
+        exit(1);
+    }
+
+    switch (e->kind) {
+    case ExpressionKindAtom: {
+        struct String s = e->atom;
+        // numbers are int
+        bool is_number = true;
+        for (size_t i = 0; i < s.len; i++) {
+            if (!isdigit(s.data[i])) {
+                is_number = false;
+                break;
+            }
+        }
+        if (is_number)
+            return type_int();
+        // otherwise it's a variable
+        return lookup_env(env, s);
+    }
+    case ExpressionKindMonad: {
+        Type* rhs = infer(e->monad.expr, env);
+        struct String op = e->monad.operation;
+        if (seq(op, "-") || seq(op, "+")) {
+            if (!unify(rhs, type_int())) {
+                fprintf(stderr, "[Type Error] unary '%.*s' operator requires Int operand\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+            return type_int();
+        }
+        if (seq(op, "!")) {
+            if (!unify(rhs, type_bool())) {
+                fprintf(stderr, "[Type Error] unary '%.*s' operator requires Bool operand\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+            return type_bool();
+        }
+        fprintf(stderr, "[Type Error] unknown unary operator '%.*s'\n",
+            (int)op.len, op.data);
+        exit(1);
+    }
+    case ExpressionKindDyad: {
+        Type* left = infer(e->dyad.left, env);
+        Type* right = infer(e->dyad.right, env);
+        struct String op = e->dyad.operation;
+
+        if (seq(op, "+") || seq(op, "-") || seq(op, "*") || seq(op, "/") || seq(op, "%")) {
+            if (!unify(left, type_int())) {
+                fprintf(stderr, "[Type Error] binary '%.*s' operator requires Int left operand\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+
+            if (!unify(right, type_int())) {
+                fprintf(stderr, "[Type Error] binary '%.*s' operator requires Int right operand\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+
+            return type_int();
+        }
+        if (seq(op, "==") || seq(op, "!=") || seq(op, "<") || seq(op, "<=") || seq(op, ">") || seq(op, ">=")) {
+            if (!unify(left, right)) {
+                fprintf(stderr, "[Type Error] binary '%.*s' operator requires both operands to be of the same type\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+            return type_bool();
+        }
+        if (seq(op, "&&") || seq(op, "||")) {
+            if (!unify(left, type_bool())) {
+                fprintf(stderr, "[Type Error] binary '%.*s' operator requires Bool left operand\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+            if (!unify(right, type_bool())) {
+                fprintf(stderr, "[Type Error] binary '%.*s' operator requires Bool right operand\n",
+                    (int)op.len, op.data);
+                exit(1);
+            }
+            return type_bool();
+        }
+        if (seq(op, ";"))
+            return right;
+
+        fprintf(stderr, "[Type Error] unknown binary operator '%.*s'\n",
+            (int)op.len, op.data);
+        exit(1);
+    }
+    case ExpressionKindCall: {
+        Type* fn = infer(e->call.function, env);
+        for (size_t i = 0; i < e->call.argument_list.len; i++) {
+            Type* arg = infer(e->call.argument_list.data[i], env);
+            Type* ret = type_var();
+            if (!unify(fn, type_fun(arg, ret))) {
+                fprintf(stderr, "[Type Error] cannot apply non-function type\n");
+                exit(1);
+            }
+            fn = ret;
+        }
+        return fn;
+    }
+    case ExpressionKindLet: {
+        Type* val_type = infer(e->let.value, env);
+        struct TypeScheme scheme = generalize(val_type, env);
+
+        // TODO: do we use the same environment or do we clone it?
+        struct TypeEnv* local_env = clone_env(env);
+        TypeBinding binding = { e->let.identifier, scheme };
+        append(TypeBinding, local_env->bindings, binding);
+        // TODO: free here
+        return infer(e->let.body, local_env);
+    }
+    case ExpressionKindLambda: {
+        Type* param_type = type_var();
+
+        // create a new local environment there is a better way to do this i think which is just to
+        // append and then reset the size of the environment later TODO: what i just said.
+        struct TypeEnv* local_env = clone_env(env);
+        TypeBinding binding = { e->lambda.identifier, { param_type, empty_list(int) } };
+        append(TypeBinding, local_env->bindings, binding);
+        // TODO: free here    
+        Type* body_type = infer(e->lambda.body, local_env);
+        return type_fun(param_type, body_type);
+    }
+    case ExpressionKindBranch: { // if expressions
+        Type* cond = infer(e->branch.condition, env);
+        unify(cond, type_bool());
+
+        Type* if_t = infer(e->branch.if_branch, env);
+        if (e->branch.else_branch == NULL) {
+            return type_void();
+        }
+        Type* else_t = infer(e->branch.else_branch, env);
+        if (!unify(if_t, else_t)) {
+            fprintf(stderr, "[Type Error] branches of 'if' expression must have the same type\n");
+            exit(1);
+        }
+        return if_t;
+    }
+    case ExpressionKindWhile: {
+        Type* cond = infer(e->while_loop.condition, env);
+        unify(cond, type_bool());
+        infer(e->while_loop.body, env);
+        return type_void();
+    }
+    case ExpressionKindBreak:
+    case ExpressionKindContinue:
+        return type_void();
+    case ExpressionKindTrue:
+    case ExpressionKindFalse:
+        return type_bool();
+    case ExpressionKindVoid:
+        return type_void();
+    default:
+        fprintf(stderr, "[Type Error] unknown expression kind\n");
+        exit(1);
+    }
+}
+
 int main()
 {
     DEFINE_ARRAYLIST(char);
@@ -1244,7 +1789,6 @@ int main()
     const char* input = s.data;
     puts("Source:\n```");
     puts(input);
-
     puts("```\n\nLexical Analysis:");
     struct Lexer* lexer = make_lexer(input);
     struct Token t;
@@ -1252,7 +1796,14 @@ int main()
         print_token(t);
     }
 
-    puts("\nParsing:");
+    puts("\n\nParsing:");
     struct Expression* exp = expr(input);
     print_expression(exp);
+
+    puts("\n\nType Inference:");
+    struct TypeEnv env = { .bindings = empty_list(TypeBinding) };
+    Type* ty = infer(exp, &env);
+    printf("Inferred type: ");
+    print_type(ty);
+    printf("\n");
 }
