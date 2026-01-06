@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <ctype.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -203,7 +204,7 @@ static inline char peek(struct Lexer* lexer)
     assert(lexer->pos.offset <= lexer->input.len
         && "cannot peek past end of input");
 
-    return lexer->input.data[(*lexer).pos.offset];
+    return lexer->input.data[lexer->pos.offset];
 }
 
 static inline void move_across(struct Lexer* lexer)
@@ -251,10 +252,9 @@ static inline void skip_whitespace(struct Lexer* lexer)
         if (c == '\t') {
             fprintf(stderr,
                 "[Lexer Error] tab characters are not supported, "
-                "please replace tabs with spaces at %d:%d in %s \n",
+                "please replace tabs with spaces at %d:%d \n",
                 lexer->pos.line,
-                lexer->pos.column,
-                NULL);
+                lexer->pos.column);
         }
         if (c == '\n') {
             move_down(lexer);
@@ -333,7 +333,7 @@ enum TokenKind delim_kind(char c)
 static struct Token next_token(struct Lexer* lexer)
 {
     skip_whitespace(lexer);
-    struct SourcePos start = (*lexer).pos;
+    struct SourcePos start = lexer->pos;
 
     char c = peek(lexer);
 
@@ -349,7 +349,7 @@ static struct Token next_token(struct Lexer* lexer)
         lexer->curr_token = lexer->next_token;
         lexer->next_token = (struct Token) {
             .kind = TokenKindEof,
-            .lexeme = { (*lexer).input.data + start.offset, 1 },
+            .lexeme = { lexer->input.data + start.offset, 1 },
             .range = {
                 .start = start,
                 .end = start,
@@ -363,7 +363,7 @@ static struct Token next_token(struct Lexer* lexer)
         lexer->curr_token = lexer->next_token;
         lexer->next_token = (struct Token) {
             .kind = TokenKindSemicolon,
-            .lexeme = { (*lexer).input.data + start.offset, 1 },
+            .lexeme = { lexer->input.data + start.offset, 1 },
             .range = {
                 .start = start,
                 .end = start,
@@ -377,17 +377,17 @@ static struct Token next_token(struct Lexer* lexer)
         lexer->curr_token = lexer->next_token;
         lexer->next_token = (struct Token) {
             .kind = delim_kind(c),
-            .lexeme = { (*lexer).input.data + start.offset, 1 },
+            .lexeme = { lexer->input.data + start.offset, 1 },
             .range = {
                 .start = start,
-                .end = (*lexer).pos,
+                .end = lexer->pos,
             }
         };
         return lexer->curr_token;
     }
 
     if (isdigit(c)) {
-        while (isdigit(peek(lexer)) || peek(lexer) == '_') {
+        while (isdigit((int)peek(lexer)) || peek(lexer) == '_') {
             move_across(lexer);
         }
 
@@ -395,25 +395,25 @@ static struct Token next_token(struct Lexer* lexer)
         lexer->next_token = (struct Token) {
             .kind = TokenKindNat,
             .lexeme = {
-                .data = (*lexer).input.data + start.offset,
-                .len = (*lexer).pos.offset - start.offset,
+                .data = lexer->input.data + start.offset,
+                .len = lexer->pos.offset - start.offset,
             },
             .range = {
                 .start = start,
-                .end = (*lexer).pos,
+                .end = lexer->pos,
             }
         };
         return lexer->curr_token;
     }
 
     if (isalpha(c)) {
-        while (peek(lexer) == '_' || isalnum(peek(lexer))) {
+        while (peek(lexer) == '_' || isalnum((int)peek(lexer))) {
             move_across(lexer);
         }
 
         struct String s = {
-            .data = (*lexer).input.data + start.offset,
-            .len = (*lexer).pos.offset - start.offset,
+            .data = lexer->input.data + start.offset,
+            .len = lexer->pos.offset - start.offset,
         };
 
         lexer->curr_token = lexer->next_token;
@@ -435,7 +435,7 @@ static struct Token next_token(struct Lexer* lexer)
             .lexeme = s,
             .range = {
                 .start = start,
-                .end = (*lexer).pos,
+                .end = lexer->pos,
             }
         };
         return lexer->curr_token;
@@ -461,11 +461,10 @@ static struct Token next_token(struct Lexer* lexer)
     }
 
     fprintf(stderr, "[Lexer Error] found illegal character '%c' at"
-                    " %d:%d in %s \n",
+                    " %d:%d",
         peek(lexer),
         start.line,
-        start.column,
-        NULL);
+        start.column);
     exit(1);
 }
 
@@ -649,7 +648,7 @@ bool prefix_binding_power(struct String op, int* rbp)
 }
 
 // returns true if we fail to find the binding power of an infix operator
-bool infix_binding_power(struct String op, int* lbp, int* rbp)
+bool infix_binding_power(struct String op, unsigned int* lbp, unsigned int* rbp)
 {
     if (seq(op, ";")) {
         *lbp = 2;
@@ -696,7 +695,7 @@ bool infix_binding_power(struct String op, int* lbp, int* rbp)
 }
 
 // returns true if  we fail to find the binding power of an postfix operator
-bool postfix_binding_power(struct String op, int* lbp)
+bool postfix_binding_power(struct String op, unsigned int* lbp)
 {
     if (seq(op, "!")) {
         *lbp = 20;
@@ -1089,7 +1088,7 @@ struct Expression* expr_bp(struct Lexer* lexer,
     // extend the expression as much as possible using post and infix operators
     while (true) {
         struct Token t = peek_token(lexer);
-        int lbp, rbp;
+        unsigned int lbp, rbp;
 
         // special post fixes
         if (t.kind == TokenKindLBracket) {
@@ -1359,21 +1358,21 @@ Type* new_type(enum TypeKind kind)
 Type* type_var(void) { return new_type(TYPE_VAR); }
 Type* type_int(void)
 {
-    static Type t = { TYPE_INT, -1, NULL };
+    static Type t = { TYPE_INT, -1, NULL, {} };
     if (!t.parent)
         t.parent = &t;
     return &t;
 }
 Type* type_bool(void)
 {
-    static Type t = { TYPE_BOOL, -2, NULL };
+    static Type t = { TYPE_BOOL, -2, NULL, {} };
     if (!t.parent)
         t.parent = &t;
     return &t;
 }
 Type* type_void(void)
 {
-    static Type t = { TYPE_VOID, -3, NULL };
+    static Type t = { TYPE_VOID, -3, NULL, {} };
     if (!t.parent)
         t.parent = &t;
     return &t;
@@ -1522,7 +1521,8 @@ void collect_free(Type* t, bool* seen)
 // TypeScheme { type: a -> a, vars: [a] } where a is a type variable.
 struct TypeScheme generalize(Type* t, struct TypeEnv* env)
 {
-    // NOTE: this is very tricky to get right
+    // NOTE: this is very tricky to get right, we are technically supposed
+    // to remove free variables which in the environment but i dont do that...
 
     // we quantify with all the free type variables in t
     // that are not in the environment
@@ -1585,7 +1585,7 @@ Type* instantiate(struct TypeScheme* s)
 Type* lookup_env(struct TypeEnv* env, struct String name)
 {
     // look up from the end so that we get the most recent binding
-    for (size_t i = env->bindings.len - 1; i >= 0; --i) {
+    for (size_t i = env->bindings.len; i-- > 0;) {
         TypeBinding b = env->bindings.data[i];
         if (b.name.len == name.len
             && strncmp(
@@ -1624,7 +1624,7 @@ Type* infer(struct Expression* e, struct TypeEnv* env)
         // numbers are int
         bool is_number = true;
         for (size_t i = 0; i < s.len; i++) {
-            if (!isdigit(s.data[i])) {
+            if (!isdigit((int)s.data[i])) {
                 is_number = false;
                 break;
             }
@@ -1794,6 +1794,7 @@ int main()
     DEFINE_ARRAYLIST(char);
     FILE* file = fopen("file.txt", "r"); // NOTE: just ignore the error for now
 
+    // source code
     int c;
     struct ArrayList(char) s = empty_list(char);
     while ((c = fgetc(file)) != EOF) {
@@ -1805,6 +1806,8 @@ int main()
     const char* input = s.data;
     puts("Source:\n```");
     puts(input);
+
+    // lexical analysis
     puts("```\n\nLexical Analysis:");
     struct Lexer lexer = make_lexer(input);
     struct Token t;
@@ -1812,10 +1815,12 @@ int main()
         print_token(t);
     }
 
+    // pratt parsing
     puts("\n\nParsing:");
     struct Expression* exp = expr(input);
     print_expression(exp);
 
+    // hm type inference
     puts("\n\nType Inference:");
     struct TypeEnv env = { .bindings = empty_list(TypeBinding) };
     Type* ty = infer(exp, &env);
@@ -1823,3 +1828,13 @@ int main()
     print_type(ty);
     printf("\n");
 }
+
+// TODO: tracking source positions
+
+// Source Code
+// --> Lexer -->
+// Tokens
+// --> Pratt Parser ->
+// AST
+// -> Hindley-Milnet Type System ->
+// Typed AST
